@@ -3,15 +3,22 @@ mod token;
 mod parser;
 
 use token::*;
+use parser::*;
 
 fn main() {
-    
+
     let source =
 r"
-main() {
+foo = 5 * 6 + 4
+
+foo() = {
+    c
+}
+
+main()(x) {
     3 * 5 # comment
 }
 ";
 
-    tokenize(source).iter().for_each(|t| print!("{:?}", t));
+    parse(&mut tokenize(source));
 }
