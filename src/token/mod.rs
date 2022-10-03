@@ -2,26 +2,49 @@ use std::collections::{VecDeque};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub enum Operator {
-    Assign,
-
     Add,
     Sub,
     Mul,
-    Div
+    Div,
+
+    Assign
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Assoc {
+    Right,
+    Left
 }
 
 impl Operator {
     pub fn parse<'a>(str: &'a str) -> Self {
         return match str {
-            "=" => Operator::Assign,
-
             "+" => Operator::Add,
             "-" => Operator::Sub,
             "*" => Operator::Mul,
             "/" => Operator::Div,
+            "=" => Operator::Assign,
 
             _ => panic!("Unspecified operator")
         };
+    }
+
+    pub fn prec(&self) -> usize {
+        return match self {
+            Operator::Add => 3,
+            Operator::Sub => 3,
+
+            Operator::Mul => 4,
+            Operator::Div => 4,
+
+            _ => 0
+        }
+    }
+
+    pub fn assoc(&self) -> Assoc {
+        match self {
+            _ => Assoc::Right
+        }
     }
 }
 
@@ -34,10 +57,14 @@ pub enum Token<'a> {
     Delemiter(char),
     Operator(Operator),
     Number(&'a str),
-    LineBreak
+    LineBreak,
+    Func(&'a str),
+    Var(&'a str),
+    Arg(&'a str),
+    Assign(&'a str),
 }
 
-const TOKEN_REGEX_SRC: &'static str = r"(#.*)|([A-Za-z_]+)|(\d*\.?\d+)|([+\-*=])|([(){}])|(\n)";
+const TOKEN_REGEX_SRC: &'static str = r"(#.*)|([A-Za-z_]+)\s*=|([A-Za-z_]+)|(\d*\.?\d+)|([+\-*/=])|([(){}])|(\n)";
  
 lazy_static::lazy_static! {
     static ref TOKEN_REGEX: regex::Regex = regex::Regex::new(TOKEN_REGEX_SRC).unwrap();
@@ -59,11 +86,12 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
             // if we have a match, save it as token
             if let Some(mat) = group  {
                 tokens.push_back(match i  {
-                    2 => Token::Word(mat.as_str()),
-                    3 => Token::Number(mat.as_str()),
-                    4 => Token::Operator(Operator::parse(mat.as_str())),
-                    5 => Token::Delemiter(mat.as_str().chars().nth(0).unwrap()),
-                    6 => Token::LineBreak,
+                    2 => Token::Assign(mat.as_str()),
+                    3 => Token::Word(mat.as_str()),
+                    4 => Token::Number(mat.as_str()),
+                    5 => Token::Operator(Operator::parse(mat.as_str())),
+                    6 => Token::Delemiter(mat.as_str().chars().nth(0).unwrap()),
+                    7 => Token::LineBreak,
 
                     _ => panic!("Unknown match to tokenize: {}", mat.as_str())
                 });

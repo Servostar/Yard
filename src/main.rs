@@ -9,14 +9,12 @@ fn main() {
 
     let source =
 r"
-foo = 5 * 6 + 4
+foo(c) = 3 * c
 
-foo() = {
-    c
-}
+main() {
+    x = foo(5 * 6)
 
-main()(x) {
-    3 * 5 # comment
+    4 * 3
 }
 ";
 
