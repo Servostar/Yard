@@ -220,7 +220,7 @@ fn discover_exprs<'a>(functions: &mut Vec<Func<'a>>) {
 /// parse a single term using a modified shunting yard
 fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope) {
     let mut op_stack = vec![];
-    let mut output = VecDeque::new();
+    let mut output = VecDeque::with_capacity(term.len());
 
     'outer:
     while let Some(token) = term.pop_front() {
@@ -273,8 +273,10 @@ fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope) {
                             let prec1 = op1.prec();
 
                             if prec1 > prec0 || prec0 == prec1 && op.assoc() == Assoc::Left {
-                                output.push_back(op_stack.pop().unwrap())
+                                output.push_back(op_stack.pop().unwrap());
+                                continue
                             }
+                            break
                         },
                         _ => break
                     }

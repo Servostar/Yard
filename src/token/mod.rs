@@ -2,6 +2,17 @@ use std::collections::{VecDeque};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub enum Operator {
+    Or,
+    And,
+    Xor,
+
+    Eq,
+    Lt,
+    Gt,
+    GtEq,
+    LtEq,
+    NotEq,
+
     Add,
     Sub,
     Mul,
@@ -19,6 +30,17 @@ pub enum Assoc {
 impl Operator {
     pub fn parse<'a>(str: &'a str) -> Self {
         return match str {
+            "|" => Operator::Or,
+            "&" => Operator::And,
+            "^" => Operator::Xor,
+
+            "==" => Operator::Eq,
+            "<" => Operator::Lt,
+            ">" => Operator::Gt,
+            "<=" => Operator::LtEq,
+            ">=" => Operator::GtEq,
+            "!=" => Operator::NotEq,
+
             "+" => Operator::Add,
             "-" => Operator::Sub,
             "*" => Operator::Mul,
@@ -31,6 +53,17 @@ impl Operator {
 
     pub fn prec(&self) -> usize {
         return match self {
+            Operator::Eq => 2,
+            Operator::Lt => 2,
+            Operator::Gt => 2,
+            Operator::LtEq => 2,
+            Operator::GtEq => 2,
+            Operator::NotEq => 2,
+
+            Operator::Or => 0,
+            Operator::Xor => 0,
+            Operator::And => 1,
+
             Operator::Add => 3,
             Operator::Sub => 3,
 
@@ -62,9 +95,10 @@ pub enum Token<'a> {
     Var(&'a str),
     Arg(&'a str),
     Assign(&'a str),
+    Bool(bool),
 }
 
-const TOKEN_REGEX_SRC: &'static str = r"(#.*)|([A-Za-z_]+)\s*=|([A-Za-z_]+)|(\d*\.?\d+)|([+\-*/=])|([(){}])|(\n)";
+const TOKEN_REGEX_SRC: &'static str = r"(#.*)|(true|false|yes|no|maybe)|([A-Za-z_]+)\s*=|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>])|([(){}])|(\n)";
  
 lazy_static::lazy_static! {
     static ref TOKEN_REGEX: regex::Regex = regex::Regex::new(TOKEN_REGEX_SRC).unwrap();
@@ -86,12 +120,13 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
             // if we have a match, save it as token
             if let Some(mat) = group  {
                 tokens.push_back(match i  {
-                    2 => Token::Assign(mat.as_str()),
-                    3 => Token::Word(mat.as_str()),
-                    4 => Token::Number(mat.as_str()),
-                    5 => Token::Operator(Operator::parse(mat.as_str())),
-                    6 => Token::Delemiter(mat.as_str().chars().nth(0).unwrap()),
-                    7 => Token::LineBreak,
+                    2 => Token::Bool(parse_bool(mat.as_str())),
+                    3 => Token::Assign(mat.as_str()),
+                    4 => Token::Word(mat.as_str()),
+                    5 => Token::Number(mat.as_str()),
+                    6 => Token::Operator(Operator::parse(mat.as_str())),
+                    7 => Token::Delemiter(mat.as_str().chars().nth(0).unwrap()),
+                    8 => Token::LineBreak,
 
                     _ => panic!("Unknown match to tokenize: {}", mat.as_str())
                 });
@@ -100,4 +135,13 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
     }
 
     return tokens;
+}
+
+fn parse_bool(text: &str) -> bool {
+    return match text.to_ascii_lowercase().as_str() {
+        "true" | "ye" => true,
+        "false" |"no" => false,
+        "maybe" => rand::random(),
+        _ => panic!("Not a recognized boolean {text}")
+    }
 }

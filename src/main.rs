@@ -9,12 +9,10 @@ fn main() {
 
     let source =
 r"
-foo(c) = 3 * c
+pi = 3.1415926
 
 main() {
-    x = foo(5 * 6)
-
-    4 * 3
+    
 }
 ";
 
