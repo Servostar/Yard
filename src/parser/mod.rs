@@ -240,6 +240,7 @@ fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope) {
             }
             Token::Number(_) => output.push_back(token),
             Token::Assign(_) => op_stack.push(token),
+            Token::Keyword(_) => op_stack.push(token),
 
             Token::Delemiter(char) => {
                 match char {
