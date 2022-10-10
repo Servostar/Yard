@@ -1,6 +1,6 @@
 use std::{collections::{VecDeque}};
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
 pub enum Operator {
     Or,
     And,
@@ -57,7 +57,12 @@ impl Operator {
             Operator::Lt => 2,
             Operator::Gt => 2,
             Operator::LtEq => 2,
+            Operator::GtEq => 2,       Operator::Eq => 2,
+            Operator::Lt => 2,
+            Operator::Gt => 2,
+            Operator::LtEq => 2,
             Operator::GtEq => 2,
+            Operator::NotEq => 2,
             Operator::NotEq => 2,
 
             Operator::Or => 0,
@@ -84,7 +89,10 @@ impl Operator {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Keyword {
     If,
-    While
+    While,
+    Loop,
+    Break,
+    Continue,
 }
 
 impl Keyword {
@@ -92,12 +100,23 @@ impl Keyword {
         return match text {
             "if" => Keyword::If,
             "while" => Keyword::While,
+            "loop" => Keyword::Loop,
+            "break" => Keyword::Break,
+            "continue" => Keyword::Continue,
             _ => panic!("Text not a known keyword {text}")
         }
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct SourceString<'a> {
+    pub string: &'a str,
+    /// line in which the source string is to be found
+    pub line: usize,
+    /// index in source where the token starts
+    pub start: usize
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
 /// A token represents a basic building block for source code.
 /// They give a meaning to patterns of chars allowing to interpret them.
 pub enum Token<'a> {
@@ -112,10 +131,11 @@ pub enum Token<'a> {
     Arg(&'a str),
     Assign(&'a str),
     Bool(bool),
-    Keyword(Keyword)
+    Keyword(Keyword),
+    TypeDecl(&'a str)
 }
 
-const TOKEN_REGEX_SRC: &'static str = r"(#.*)|(if|while)|(true|false|yes|no|maybe)|([A-Za-z_]+)\s*=|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>])|([(){}])|(\n)";
+const TOKEN_REGEX_SRC: &'static str = r"(#.*)|(if|while|loop|break|continue)|(true|false|yes|no|maybe)|([A-Za-z_]+)\s*(?::\s*(i4|f4|bool))?\s*=|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>])|([(){}])|(\n)";
  
 lazy_static::lazy_static! {
     static ref TOKEN_REGEX: regex::Regex = regex::Regex::new(TOKEN_REGEX_SRC).unwrap();
@@ -148,6 +168,7 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
 
                     _ => panic!("Unknown match to tokenize: {}", mat.as_str())
                 });
+                break;
             }
         }
     }

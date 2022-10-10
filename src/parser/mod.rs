@@ -2,7 +2,7 @@ use core::panic;
 use std::{collections::{VecDeque}, vec};
 use crate::token::{Token, Operator, Assoc};
 
-mod data;
+pub mod data;
 
 use data::*;
 
@@ -239,7 +239,10 @@ fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope) {
                 panic!("Unknwon word: {text}")
             }
             Token::Number(_) => output.push_back(token),
-            Token::Assign(_) => op_stack.push(token),
+            Token::Assign(text) => {
+                scope.decl_var((*text).to_owned());
+                op_stack.push(token);
+            },
             Token::Keyword(_) => op_stack.push(token),
 
             Token::Delemiter(char) => {
@@ -269,7 +272,7 @@ fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope) {
             Token::Operator(op) => {
                 let prec0 = op.prec();
                 while let Some(top) = op_stack.last(){
-                    match &top {    
+                    match &top {
                         Token::Operator(op1) => {
                             let prec1 = op1.prec();
 
@@ -301,12 +304,14 @@ fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope) {
 }
 
 fn parse_block(block: &mut Block, scope: &mut Scope) {
+    scope.alloc_scope();
     for expr in block.iter_mut() {
         match expr {
             Expr::Block(block) => parse_block(block, scope),
             Expr::Term(term) => parse_term(term, scope)
         }
     }
+    scope.pop_scope();
 }
 
 fn parse_exprs<'a>(funcs: &mut Vec<Func<'a>>) {
@@ -331,11 +336,13 @@ fn parse_exprs<'a>(funcs: &mut Vec<Func<'a>>) {
 /// reorder and organize a listing of instructions to a RPN based format:
 /// any program is made out of functions.
 /// A function has a name followed by an optional parameter list, followed by an optional equal sign and block.
-pub fn parse<'a>(tokens: &mut VecDeque<crate::Token<'a>>)  {
+pub fn parse<'a>(tokens: &mut VecDeque<crate::Token<'a>>) -> Vec<Func<'a>> {
     let mut funcs = discover_functions(tokens);
 
     discover_exprs(&mut funcs);
     parse_exprs(&mut funcs);
 
     funcs.iter().for_each(|f| println!("{:?}", f));
+
+    funcs
 }

@@ -74,7 +74,7 @@ pub struct Scope<'a> {
     pub funcs: Vec<&'a str>,
     pub args: Option<&'a Vec<&'a str>>,
     /// stack of scoped block variables
-    pub vars: Vec<Vec<&'a str>>,
+    pub vars: Vec<Vec<String>>,
 }
 
 impl<'a> Scope<'a> {
@@ -86,18 +86,28 @@ impl<'a> Scope<'a> {
         self.vars.pop();
     }
 
+    pub fn decl_var(&mut self, name: String) {
+        self.vars.last_mut().unwrap().push(name)
+    }
+
     pub fn is_func(&self, name: &'a str) -> bool {
         self.funcs.contains(&name)
     }
+    
     pub fn is_arg(&self, name: &'a str) -> bool {
         if let Some(args) = self.args {
             return args.contains(&name);
         }
         false
     }
+
     pub fn is_var(&self, name: &'a str) -> bool {
+        // create an owned version of the string
+        let owned = &name.to_owned();
+        
+        // search
         for vars in self.vars.iter() {
-            if vars.contains(&name) {
+            if vars.contains(owned) {
                 return true;
             }
         }
