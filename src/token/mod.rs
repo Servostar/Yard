@@ -57,13 +57,7 @@ impl Operator {
             Operator::Lt => 2,
             Operator::Gt => 2,
             Operator::LtEq => 2,
-            Operator::GtEq => 2,       Operator::Eq => 2,
-            Operator::Lt => 2,
-            Operator::Gt => 2,
-            Operator::LtEq => 2,
             Operator::GtEq => 2,
-            Operator::NotEq => 2,
-            Operator::NotEq => 2,
 
             Operator::Or => 0,
             Operator::Xor => 0,
@@ -108,15 +102,25 @@ impl Keyword {
     }
 }
 
-pub struct SourceString<'a> {
-    pub string: &'a str,
-    /// line in which the source string is to be found
-    pub line: usize,
-    /// index in source where the token starts
-    pub start: usize
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum Prim {
+    Int,
+    Real,
+    Bool,
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
+impl Prim {
+    fn from<'a>(text: &'a str) -> Prim {
+        return match text {
+            "i4" => Prim::Int,
+            "f4" => Prim::Real,
+            "bool" => Prim::Bool,
+            _ => panic!("Unknown type declaration: {text}")
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 /// A token represents a basic building block for source code.
 /// They give a meaning to patterns of chars allowing to interpret them.
 pub enum Token<'a> {
@@ -129,13 +133,13 @@ pub enum Token<'a> {
     Func(&'a str),
     Var(&'a str),
     Arg(&'a str),
-    Assign(&'a str),
+    Assign(&'a str, Option<Prim>),
+    Decl(&'a str, Prim),
     Bool(bool),
     Keyword(Keyword),
-    TypeDecl(&'a str)
 }
 
-const TOKEN_REGEX_SRC: &'static str = r"(#.*)|(if|while|loop|break|continue)|(true|false|yes|no|maybe)|([A-Za-z_]+)\s*(?::\s*(i4|f4|bool))?\s*=|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>])|([(){}])|(\n)";
+const TOKEN_REGEX_SRC: &'static str = r"(#.*)|(if|while|loop|break|continue)|(true|false|yes|no|maybe)|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))?\s*=|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>])|([(){}])|(\n+)";
  
 lazy_static::lazy_static! {
     static ref TOKEN_REGEX: regex::Regex = regex::Regex::new(TOKEN_REGEX_SRC).unwrap();
@@ -146,7 +150,14 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
     let mut tokens = VecDeque::new();
 
     for cap in TOKEN_REGEX.captures_iter(source) {
-        for (i, group) in cap.iter().enumerate() {
+        let mut enumerator = cap.iter().enumerate();
+        loop {
+            let next = enumerator.next();
+            if next.is_none() {
+                break
+            }
+
+            let (i, group) = next.unwrap();
 
             // ignore first group as its the entire match,
             // as well as the 1st group (= comments)
@@ -155,18 +166,29 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
             }
 
             // if we have a match, save it as token
-            if let Some(mat) = group  {
-                tokens.push_back(match i  {
+            if let Some(mat) = group {
+                tokens.push_back(match i {
                     2 => Token::Keyword(Keyword::parse(mat.as_str())),
                     3 => Token::Bool(parse_bool(mat.as_str())),
-                    4 => Token::Assign(mat.as_str()),
-                    5 => Token::Word(mat.as_str()),
-                    6 => Token::Number(mat.as_str()),
-                    7 => Token::Operator(Operator::parse(mat.as_str())),
-                    8 => Token::Delemiter(mat.as_str().chars().nth(0).unwrap()),
-                    9 => Token::LineBreak,
+                    4 => {
+                        let var_type = Prim::from(enumerator.next().unwrap().1.unwrap().as_str());
+                        Token::Decl(mat.as_str(), var_type)
+                    },
+                    6 => {
+                        let var_type = if let Some(mat) = enumerator.next().unwrap().1 {
+                            Some(Prim::from(mat.as_str()))
+                        } else {
+                            None
+                        };
+                        Token::Assign(mat.as_str(), var_type)
+                    },
+                    8 => Token::Word(mat.as_str()),
+                    9 => Token::Number(mat.as_str()),
+                    10 => Token::Operator(Operator::parse(mat.as_str())),
+                    11 => Token::Delemiter(mat.as_str().chars().nth(0).unwrap()),
+                    12 => Token::LineBreak,
 
-                    _ => panic!("Unknown match to tokenize: {}", mat.as_str())
+                    _ => panic!("Unknown match to tokenize ({i}): {}", mat.as_str())
                 });
                 break;
             }

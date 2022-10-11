@@ -1,12 +1,13 @@
 use std::collections::{VecDeque};
 use crate::token::{Token};
+use crate::Prim;
 
-#[derive(Eq, Debug)]
+#[derive(Debug)]
 pub struct Func<'a> {
     /// name of this function
     pub name: Option<&'a str>,
     /// parameter names
-    pub args: Option<Vec<&'a str>>,
+    pub args: Option<Vec<(&'a str, Prim)>>,
     /// raw tokens
     pub raw: Option<VecDeque<Token<'a>>>,
     /// if the function returns a single value
@@ -43,11 +44,11 @@ impl<'a> std::fmt::Display for Func<'a> {
             f.write_str("(")?;
             for (x, arg) in args.iter().enumerate() {
                 if x == 0 {
-                    f.write_fmt(format_args!("{}", arg))?;
+                    f.write_fmt(format_args!("{}", arg.0))?;
                     continue;
                 }
 
-                f.write_fmt(format_args!(", {}", arg))?;
+                f.write_fmt(format_args!(", {}", arg.0))?;
             }
             f.write_str(")")?;
         }
@@ -62,7 +63,7 @@ impl<'a> std::fmt::Display for Func<'a> {
 
 pub type Block<'a> = VecDeque<Expr<'a>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr<'a> {
     /// group of more expressions
     Block(Block<'a>),
@@ -72,9 +73,9 @@ pub enum Expr<'a> {
 
 pub struct Scope<'a> {
     pub funcs: Vec<&'a str>,
-    pub args: Option<&'a Vec<&'a str>>,
+    pub args: Option<&'a Vec<(&'a str, Prim)>>,
     /// stack of scoped block variables
-    pub vars: Vec<Vec<String>>,
+    pub vars: Vec<Vec<(String, Option<Prim>)>>,
 }
 
 impl<'a> Scope<'a> {
@@ -86,8 +87,8 @@ impl<'a> Scope<'a> {
         self.vars.pop();
     }
 
-    pub fn decl_var(&mut self, name: String) {
-        self.vars.last_mut().unwrap().push(name)
+    pub fn decl_var(&mut self, name: String, typ: Option<Prim>) {
+        self.vars.last_mut().unwrap().push((name, typ))
     }
 
     pub fn is_func(&self, name: &'a str) -> bool {
@@ -96,21 +97,27 @@ impl<'a> Scope<'a> {
     
     pub fn is_arg(&self, name: &'a str) -> bool {
         if let Some(args) = self.args {
-            return args.contains(&name);
+            for arg in args.iter() {
+                if arg.0 == name {
+                    return true;
+                }
+            }
         }
         false
     }
 
-    pub fn is_var(&self, name: &'a str) -> bool {
+    pub fn is_var(&self, name: &'a str) -> Option<Prim> {
         // create an owned version of the string
         let owned = &name.to_owned();
         
         // search
         for vars in self.vars.iter() {
-            if vars.contains(owned) {
-                return true;
+            for var in vars.iter() {
+                if &var.0 == owned {
+                    return var.1;
+                }
             }
         }
-        false
+        None
     }
 }

@@ -1,6 +1,6 @@
-use core::panic;
+use core::{panic};
 use std::{collections::{VecDeque}, vec};
-use crate::token::{Token, Operator, Assoc};
+use crate::token::{Token, Operator, Assoc, Prim};
 
 pub mod data;
 
@@ -86,7 +86,7 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>) -> Vec<Func<'
                     _ => ()
                 }
 
-                Token::Assign(name) => {
+                Token::Assign(name, _) => {
                     if func.results {
                         panic!("double function assignment not permitted")
                     }
@@ -151,8 +151,9 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>) -> Vec<Func<'
             }
 
             match &top {
-                Token::Word(text) => args.push(text),
-                _ => panic!("Argument is not a word {:?}", &top)
+                Token::Decl(name, typ) => args.push((name, *typ)),
+                Token::Word(name) => panic!("Missing type declaration {name}"),
+                _ => panic!("Argument is not a declaration {:?}", &top)
             }
             continue;
         }
@@ -221,6 +222,14 @@ fn discover_exprs<'a>(functions: &mut Vec<Func<'a>>) {
 fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope) {
     let mut op_stack = vec![];
     let mut output = VecDeque::with_capacity(term.len());
+    let mut value_stack = vec![];
+
+    /*
+    
+    Token::Number(text) => value_stack.push(CompileTimeType::UntypedNum(text)),
+    Token::Bool(_) => value_stack.push(CompileTimeType::Prim(Prim::Bool)),
+    
+    */
 
     'outer:
     while let Some(token) = term.pop_front() {
@@ -232,15 +241,18 @@ fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope) {
                 } else if scope.is_arg(text) {
                     output.push_back(Token::Arg(text));
                     continue;
-                } else if scope.is_var(text) {
+                } else if scope.is_var(text).is_some() {
                     output.push_back(Token::Var(text));
                     continue;
                 }
                 panic!("Unknwon word: {text}")
             }
-            Token::Number(_) => output.push_back(token),
-            Token::Assign(text) => {
-                scope.decl_var((*text).to_owned());
+            Token::Number(_) => {
+                output.push_back(token);
+                value_stack.push(CompileTimeType::UntypedNum)
+            },
+            Token::Assign(text, typ) => {
+                scope.decl_var((*text).to_owned(), typ.to_owned());
                 op_stack.push(token);
             },
             Token::Keyword(_) => op_stack.push(token),
@@ -301,6 +313,11 @@ fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope) {
     }
 
     term.append(&mut output);
+}
+
+enum CompileTimeType {
+    Prim(Prim),
+    UntypedNum,
 }
 
 fn parse_block(block: &mut Block, scope: &mut Scope) {
