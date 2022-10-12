@@ -8,6 +8,11 @@ mod parser;
 
 use token::*;
 use parser::*;
+use colored::{Colorize};
+
+pub fn message(typ: MessageType, msg: String) {
+    println!("{}: {}", typ.to_colored(), msg.bold().bright_white());
+}
 
 fn main() {
 
@@ -15,11 +20,11 @@ fn main() {
 r"
 pi = 3.1415926535
 
-sin(x: f4) = {
+sin(x: f4) = { {
     x
 }
 
-main() {
+man() {
 
     x:i4 = 0
     loop {
@@ -31,5 +36,5 @@ main() {
 }
 ";
 
-    parse(&mut tokenize(source));
+    parse(&mut tokenize(source), source);
 }

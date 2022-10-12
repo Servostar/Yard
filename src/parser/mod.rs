@@ -1,13 +1,13 @@
 use core::{panic};
 use std::{collections::{VecDeque}, vec};
-use crate::token::{Token, Operator, Assoc, Prim};
+use crate::token::{Token, Operator, Assoc, Prim, MessageType};
 
 pub mod data;
 
 use data::*;
 
 /// simple brace-counting parser to detect functions
-fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>) -> Vec<Func<'a>> {
+fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str) -> Vec<Func<'a>> {
     let mut funcs = Vec::new();
 
     // function to currently identifiy
@@ -22,7 +22,7 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>) -> Vec<Func<'
     macro_rules! finish_func {
         () => {
             if funcs.contains(&func) {
-                panic!("Function already defined: {func}")
+                panic!("Function defined multiple times: {func}")
             }
 
             funcs.push(func);
@@ -36,12 +36,13 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>) -> Vec<Func<'
         // function body detection
         // has highest priority
         match &top {
-            Token::Delemiter(char) => match char {
+            Token::Delemiter(char, dbginf) => match char {
                 '{' => {
                     brace_cnt += 1;
                     if brace_cnt == 1 {
                         if func.name.is_none() {
-                            panic!("Anonymous function not permitted");
+                            dbginf.print(MessageType::Error, "Anonymous function not permitted", source);
+                            panic!();
                         }
                         single_line = false;
                         func.raw = Some(VecDeque::new());
@@ -58,7 +59,7 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>) -> Vec<Func<'
                 _ => ()
             }
             
-            Token::LineBreak => if single_line {
+            Token::LineBreak(_) => if single_line {
                 finish_func!();
                 continue;
             }
@@ -70,13 +71,15 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>) -> Vec<Func<'
         
         if func.raw.is_none() {
             match &top {
-                Token::Operator(op) => match op {
+                Token::Operator(op, dbginf) => match op {
                     Operator::Assign => {
                         if func.results {
-                            panic!("double function assignment not permitted")
+                            dbginf.print(MessageType::Error, "double function assignment", source);
+                            panic!();
                         }
                         if func.name.is_none() {
-                            panic!("Anonymous function not permitted");
+                            dbginf.print(MessageType::Error, "Anonymous function", source);
+                            panic!();
                         }
 
                         func.results = true;
@@ -86,12 +89,14 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>) -> Vec<Func<'
                     _ => ()
                 }
 
-                Token::Assign(name, _) => {
+                Token::Assign(name, _, dbginf) => {
                     if func.results {
-                        panic!("double function assignment not permitted")
+                        dbginf.print(MessageType::Error, "double function assignment", source);
+                        panic!();
                     }
                     if func.name.is_some() {
-                        panic!("function already named");
+                        dbginf.print(MessageType::Error, "multiple function names", source);
+                        panic!();
                     }
 
                     func.raw = Some(VecDeque::new());
@@ -101,14 +106,15 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>) -> Vec<Func<'
                     continue;
                 }
     
-                Token::Delemiter(char) => match char {
+                Token::Delemiter(char, dbginf) => match char {
     
                     '(' => if func.raw.is_none() {
                         paren_cnt += 1;
                         if paren_cnt == 1 {
     
                             if func.args.is_some() {
-                                panic!("double parameter list not permitted");
+                                dbginf.print(MessageType::Error, "double parameter list", source);
+                                panic!();
                             }
     
                             func.args = Some(Vec::new());
@@ -124,11 +130,12 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>) -> Vec<Func<'
                     _ => ()
                 }
     
-                Token::Word(text) => {
+                Token::Word(text, dbginf) => {
     
                     if func.name.is_some() {
                         if func.args.is_none() {
-                            panic!("Function name already set: {text}")
+                            dbginf.print(MessageType::Error, "multiple function names", source);
+                            panic!();
                         }
                     }
                     else {
@@ -147,21 +154,31 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>) -> Vec<Func<'
         else if let Some(args) = &mut func.args {
 
             if paren_cnt == 0 {
-                panic!("Token is not in parameter list: {:?}", top)
+                top.print(MessageType::Error, "token is no parameter", source);
+                panic!();
             }
 
             match &top {
-                Token::Decl(name, typ) => args.push((name, *typ)),
-                Token::Word(name) => panic!("Missing type declaration {name}"),
-                _ => panic!("Argument is not a declaration {:?}", &top)
+                Token::Decl(name, typ, _dbginf) => args.push((name, *typ)),
+                Token::Word(_, dbginf) => {
+                    dbginf.print(MessageType::Error, "type declaration missing", source);
+                    panic!()
+                },
+                _ => {
+                    top.print(MessageType::Error, "argument must be declaration", source);
+                    panic!()
+                }
             }
             continue;
         }
 
         // if we have anything left it might be an error
         match &top {
-            Token::LineBreak => (), // valid whitespace
-            _ => panic!("Invalid token: {:?}", top)
+            Token::LineBreak(_) => (), // valid whitespace
+            _ => {
+                top.print(MessageType::Error, "unresolvable token", source);
+                panic!()
+            }
         }
     }
     
@@ -171,7 +188,7 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>) -> Vec<Func<'
 /// parse the functions raw content to expr for easy compilation using a brace-counter.
 /// - ```{...}``` surround a block
 /// - line breaks seperate expressions
-fn discover_exprs<'a>(functions: &mut Vec<Func<'a>>) {
+fn discover_exprs<'a>(functions: &mut Vec<Func<'a>>, source: &'a str) {
     for func in functions.iter_mut() {
 
         let mut blocks = vec![Block::new()];
@@ -181,14 +198,20 @@ fn discover_exprs<'a>(functions: &mut Vec<Func<'a>>) {
         while let Some(top) = func.raw.as_mut().unwrap().pop_front() {
 
             match &top {
-                Token::LineBreak => if !expr.is_empty() {
-                    blocks.last_mut().expect("Curly brace missmatch").push_back(Expr::Term(expr));
+                Token::LineBreak(dbginf) => if !expr.is_empty() {
+                    blocks.last_mut().unwrap_or_else(|| {
+                        dbginf.print(MessageType::Error, "curly brace missmatch", source);
+                        panic!()
+                    }).push_back(Expr::Term(expr));
                     expr = VecDeque::new();
                     continue;
                 }
-                Token::Delemiter(char) => match char {
+                Token::Delemiter(char, dbginf) => match char {
                     '{' => {
-                        blocks.last_mut().expect("Curly brace missmatch").push_back(Expr::Term(expr));
+                        blocks.last_mut().unwrap_or_else(|| {
+                            dbginf.print(MessageType::Error, "curly brace missmatch", source);
+                            panic!()
+                        }).push_back(Expr::Term(expr));
                         expr = VecDeque::new();
                         blocks.push(Block::new());
                         continue;
@@ -196,7 +219,10 @@ fn discover_exprs<'a>(functions: &mut Vec<Func<'a>>) {
                     '}' => {
                         // pop topmost block of the stack, storing it in the next lower block
                         if let Some(block) = blocks.pop() {
-                            blocks.last_mut().expect("Curly brace missmatch").push_back(Expr::Block(block));
+                            blocks.last_mut().unwrap_or_else(|| {
+                                dbginf.print(MessageType::Error, "curly brace missmatch", source);
+                                panic!()
+                            }).push_back(Expr::Block(block));
                         } else {
                             panic!("Curly brace missmatch")
                         }
@@ -211,15 +237,22 @@ fn discover_exprs<'a>(functions: &mut Vec<Func<'a>>) {
         }
 
         if !expr.is_empty() {
-            blocks.last_mut().expect("Curly brace missmatch").push_back(Expr::Term(expr));
+            blocks.last_mut().unwrap_or_else(|| {
+                expr.back().unwrap().print(MessageType::Error, "curly brace missmatch", source);
+                panic!()
+            }).push_back(Expr::Term(expr));
         }
 
-        func.expr = Some(Expr::Block(blocks.pop().expect("Curly brace missmmatch")));
+        if let Some(block) = blocks.pop() {
+            func.expr = Some(Expr::Block(block));
+        } else {
+            panic!("curly brace missmatch")
+        }
     }
 }
 
 /// parse a single term using a modified shunting yard
-fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope) {
+fn parse_term<'a, 'b>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope, source: &'b str) {
     let mut op_stack = vec![];
     let mut output = VecDeque::with_capacity(term.len());
     let mut value_stack = vec![];
@@ -234,39 +267,40 @@ fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope) {
     'outer:
     while let Some(token) = term.pop_front() {
         match &token {
-            Token::Word(text) => {
+            Token::Word(text, dbginf) => {
                 if scope.is_func(text) {
-                    op_stack.push(Token::Func(text));
+                    op_stack.push(Token::Func(text, *dbginf));
                     continue;
                 } else if scope.is_arg(text) {
-                    output.push_back(Token::Arg(text));
+                    output.push_back(Token::Arg(text, *dbginf));
                     continue;
                 } else if scope.is_var(text).is_some() {
-                    output.push_back(Token::Var(text));
+                    output.push_back(Token::Var(text, *dbginf));
                     continue;
                 }
-                panic!("Unknwon word: {text}")
+                dbginf.print(MessageType::Error, "Unknown word", source);
+                panic!()
             }
-            Token::Number(_) => {
+            Token::Number(_, _) => {
                 output.push_back(token);
                 value_stack.push(CompileTimeType::UntypedNum)
             },
-            Token::Assign(text, typ) => {
+            Token::Assign(text, typ, _) => {
                 scope.decl_var((*text).to_owned(), typ.to_owned());
                 op_stack.push(token);
             },
-            Token::Keyword(_) => op_stack.push(token),
+            Token::Keyword(_, _) => op_stack.push(token),
 
-            Token::Delemiter(char) => {
+            Token::Delemiter(char, _) => {
                 match char {
                     '(' => op_stack.push(token),
                     ')' => {
                         while let Some(token) = op_stack.pop() {
                             match &token {
-                                Token::Delemiter(char) => if *char == '(' {
+                                Token::Delemiter(char, _) => if *char == '(' {
                                     if let Some(next) = op_stack.last() {
                                         match &next {
-                                            Token::Func(_) => output.push_back(op_stack.pop().unwrap()),
+                                            Token::Func(_, _) => output.push_back(op_stack.pop().unwrap()),
                                             _ => ()
                                         }
                                     }
@@ -281,11 +315,11 @@ fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope) {
                 }
             }
 
-            Token::Operator(op) => {
+            Token::Operator(op, _) => {
                 let prec0 = op.prec();
                 while let Some(top) = op_stack.last(){
                     match &top {
-                        Token::Operator(op1) => {
+                        Token::Operator(op1, _) => {
                             let prec1 = op1.prec();
 
                             if prec1 > prec0 || prec0 == prec1 && op.assoc() == Assoc::Left {
@@ -305,7 +339,7 @@ fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope) {
 
     while let Some(token) = op_stack.pop() {
         match &token {
-            Token::Delemiter(char) => if *char == '(' {
+            Token::Delemiter(char, _) => if *char == '(' {
                 panic!("Mismatched parenthesis")
             },
             _ => output.push_back(token)
@@ -320,18 +354,18 @@ enum CompileTimeType {
     UntypedNum,
 }
 
-fn parse_block(block: &mut Block, scope: &mut Scope) {
+fn parse_block<'a>(block: &mut Block, scope: &mut Scope, source: &'a str) {
     scope.alloc_scope();
     for expr in block.iter_mut() {
         match expr {
-            Expr::Block(block) => parse_block(block, scope),
-            Expr::Term(term) => parse_term(term, scope)
+            Expr::Block(block) => parse_block(block, scope, source),
+            Expr::Term(term) => parse_term(term, scope, source)
         }
     }
     scope.pop_scope();
 }
 
-fn parse_exprs<'a>(funcs: &mut Vec<Func<'a>>) {
+fn parse_exprs<'a>(funcs: &mut Vec<Func<'a>>, source: &'a str) {
     let mut scope = Scope {
         funcs: funcs.iter().map(|f| f.name.unwrap()).collect(),
         args: None,
@@ -343,7 +377,7 @@ fn parse_exprs<'a>(funcs: &mut Vec<Func<'a>>) {
             Expr::Block(block) => {
                 scope.args = func.args.as_ref();
 
-                parse_block(block, &mut scope)
+                parse_block(block, &mut scope, source)
             },
             _ => panic!("Fatal-Compilier-Error: function must have a block")
         }
@@ -353,11 +387,11 @@ fn parse_exprs<'a>(funcs: &mut Vec<Func<'a>>) {
 /// reorder and organize a listing of instructions to a RPN based format:
 /// any program is made out of functions.
 /// A function has a name followed by an optional parameter list, followed by an optional equal sign and block.
-pub fn parse<'a>(tokens: &mut VecDeque<crate::Token<'a>>) -> Vec<Func<'a>> {
-    let mut funcs = discover_functions(tokens);
+pub fn parse<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &'a str) -> Vec<Func<'a>> {
+    let mut funcs = discover_functions(tokens, source);
 
-    discover_exprs(&mut funcs);
-    parse_exprs(&mut funcs);
+    discover_exprs(&mut funcs, source);
+    parse_exprs(&mut funcs, source);
 
     funcs.iter().for_each(|f| println!("{:?}", f));
 

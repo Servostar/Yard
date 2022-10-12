@@ -3,4 +3,5 @@ Yard is an funny programming language compiler and interpreter written in pure R
 It *will* contain features such as:
 1. a COMEFROM keyword (inverse goto)
 2. a ```don't``` code block which never executes
+3. ```rand(x)``` returns x, always. 
 3. swapped meaning of "" (for single characters) and '' (now for string literal)
