@@ -1,17 +1,12 @@
+use core::panic;
 use std::collections::{VecDeque};
 use crate::token::{Token};
 use crate::Prim;
 
 #[derive(Debug)]
 pub struct Func<'a> {
-    /// name of this function
-    pub name: Option<&'a str>,
-    /// parameter names
-    pub args: Option<Vec<(&'a str, Prim)>>,
     /// raw tokens
     pub raw: Option<VecDeque<Token<'a>>>,
-    /// if the function returns a single value
-    pub results: bool,
     /// parsed content
     pub expr: Option<Expr<'a>>,
 }
@@ -19,22 +14,33 @@ pub struct Func<'a> {
 impl<'a> Func<'a> {
     pub fn new() -> Self {
         Self {
-            args: None,
             raw: None,
-            name: None,
-            results: false,
             expr: None,
         }
     }
 }
 
-impl<'a> PartialEq for Func<'a> {
-    fn eq(&self, other: &Self) -> bool {
-        self.args == other.args && self.name == self.name
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Declr<'a> {
+    /// name of this function
+    pub name: Option<&'a str>,
+    /// parameter names
+    pub args: Option<Vec<(&'a str, Prim)>>,
+    /// if the function returns a single value
+    pub results: bool,
+}
+
+impl<'a> Declr<'a> {
+    pub fn new() -> Self {
+        Self {
+            name: None,
+            args: None,
+            results: false
+        }
     }
 }
 
-impl<'a> std::fmt::Display for Func<'a> {
+impl<'a> std::fmt::Display for Declr<'a> {
     /// print this functions declaration in the form of ```foo(x,y) = {}```
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("{}", &self.name.unwrap()))?;
@@ -72,7 +78,6 @@ pub enum Expr<'a> {
 }
 
 pub struct Scope<'a> {
-    pub funcs: Vec<&'a str>,
     pub args: Option<&'a Vec<(&'a str, Prim)>>,
     /// stack of scoped block variables
     pub vars: Vec<Vec<(String, Option<Prim>)>>,
@@ -90,10 +95,6 @@ impl<'a> Scope<'a> {
     pub fn decl_var(&mut self, name: String, typ: Option<Prim>) {
         self.vars.last_mut().unwrap().push((name, typ))
     }
-
-    pub fn is_func(&self, name: &'a str) -> bool {
-        self.funcs.contains(&name)
-    }
     
     pub fn is_arg(&self, name: &'a str) -> bool {
         if let Some(args) = self.args {
@@ -104,6 +105,31 @@ impl<'a> Scope<'a> {
             }
         }
         false
+    }
+
+    pub fn get_arg_type(&self, name: &'a str) -> Prim  {
+        if let Some(args) = self.args {
+            for arg in args.iter() {
+                if arg.0 == name {
+                    return arg.1;
+                }
+            }
+        }
+        panic!("No argument of name: {name}");
+    }
+
+    pub fn get_var_type(&self, name: &'a str) -> Prim  {
+        // create an owned version of the string
+        let owned = &name.to_owned();
+
+        for vars in self.vars.iter() {
+            for var in vars.iter() {
+                if &var.0 == owned {
+                    return var.1.expect("Untyped variable");
+                }
+            }
+        }
+        panic!("No variable of name: {name}");
     }
 
     pub fn is_var(&self, name: &'a str) -> Option<Prim> {

@@ -1,17 +1,19 @@
 use core::{panic};
 use std::{collections::{VecDeque}, vec};
-use crate::token::{Token, Operator, Assoc, Prim, MessageType};
+use crate::token::{Token, Operator, Assoc, Prim, MessageType, Keyword};
 
 pub mod data;
 
 use data::*;
 
 /// simple brace-counting parser to detect functions
-fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str) -> Vec<Func<'a>> {
+fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str) -> (Vec<Func<'a>>, Vec<Declr<'a>>) {
     let mut funcs = Vec::new();
+    let mut declrs = Vec::new();
 
     // function to currently identifiy
     let mut func = Func::new();
+    let mut declr = Declr::new();
 
     // count open brackets
     let mut brace_cnt = 0;  
@@ -21,11 +23,13 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str)
 
     macro_rules! finish_func {
         () => {
-            if funcs.contains(&func) {
-                panic!("Function defined multiple times: {func}")
+            if declrs.contains(&declr) {
+                panic!("Function defined multiple times: {declr}")
             }
 
             funcs.push(func);
+            declrs.push(declr);
+            declr = Declr::new();
             func = Func::new();
             single_line = false;
         };
@@ -40,10 +44,16 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str)
                 '{' => {
                     brace_cnt += 1;
                     if brace_cnt == 1 {
-                        if func.name.is_none() {
+                        if declr.name.is_none() {
                             dbginf.print(MessageType::Error, "Anonymous function not permitted", source);
                             panic!();
                         }
+                        
+                        if paren_cnt > 0  {
+                            dbginf.print(MessageType::Error, "Unclosed parameter list", source);
+                            panic!();
+                        }
+
                         single_line = false;
                         func.raw = Some(VecDeque::new());
                         continue;
@@ -73,16 +83,16 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str)
             match &top {
                 Token::Operator(op, dbginf) => match op {
                     Operator::Assign => {
-                        if func.results {
+                        if declr.results {
                             dbginf.print(MessageType::Error, "double function assignment", source);
                             panic!();
                         }
-                        if func.name.is_none() {
+                        if declr.name.is_none() {
                             dbginf.print(MessageType::Error, "Anonymous function", source);
                             panic!();
                         }
 
-                        func.results = true;
+                        declr.results = true;
                         single_line = true;
                         continue;
                     }
@@ -90,18 +100,18 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str)
                 }
 
                 Token::Assign(name, _, dbginf) => {
-                    if func.results {
+                    if declr.results {
                         dbginf.print(MessageType::Error, "double function assignment", source);
                         panic!();
                     }
-                    if func.name.is_some() {
+                    if declr.name.is_some() {
                         dbginf.print(MessageType::Error, "multiple function names", source);
                         panic!();
                     }
 
                     func.raw = Some(VecDeque::new());
-                    func.name = Some(name);
-                    func.results = true;
+                    declr.name = Some(name);
+                    declr.results = true;
                     single_line = true;
                     continue;
                 }
@@ -112,12 +122,12 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str)
                         paren_cnt += 1;
                         if paren_cnt == 1 {
     
-                            if func.args.is_some() {
+                            if declr.args.is_some() {
                                 dbginf.print(MessageType::Error, "double parameter list", source);
                                 panic!();
                             }
     
-                            func.args = Some(Vec::new());
+                            declr.args = Some(Vec::new());
                             continue;
                         }
                     },
@@ -132,14 +142,17 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str)
     
                 Token::Word(text, dbginf) => {
     
-                    if func.name.is_some() {
-                        if func.args.is_none() {
+                    if declr.name.is_some() {
+                        if declr.args.is_none() {
                             dbginf.print(MessageType::Error, "multiple function names", source);
                             panic!();
                         }
+                    } else if brace_cnt > 0 {
+                        dbginf.print(MessageType::Error, "brace count missmatch", source);
+                        panic!();
                     }
                     else {
-                        func.name = Some(text);
+                        declr.name = Some(text);
                         continue;
                     }
                 }
@@ -151,7 +164,7 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str)
             body.push_back(top);
             continue;
         }
-        else if let Some(args) = &mut func.args {
+        else if let Some(args) = &mut declr.args {
 
             if paren_cnt == 0 {
                 top.print(MessageType::Error, "token is no parameter", source);
@@ -181,14 +194,21 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str)
             }
         }
     }
+
+    if let Some(raw) = func.raw {
+        if let Some(front) = raw.front() {
+            front.print(MessageType::Error, "Open function body", source);
+            panic!();
+        }
+    }
     
-    funcs
+    (funcs, declrs)
 }
 
 /// parse the functions raw content to expr for easy compilation using a brace-counter.
 /// - ```{...}``` surround a block
 /// - line breaks seperate expressions
-fn discover_exprs<'a>(functions: &mut Vec<Func<'a>>, source: &'a str) {
+fn discover_exprs<'a>(functions: &mut Vec<Func<'a>>, _: &Vec<Declr<'a>>, source: &'a str) {
     for func in functions.iter_mut() {
 
         let mut blocks = vec![Block::new()];
@@ -251,42 +271,131 @@ fn discover_exprs<'a>(functions: &mut Vec<Func<'a>>, source: &'a str) {
     }
 }
 
+fn check_var_typ(typ: &mut Option<Prim>, operands: &mut Vec<Prim>, dbginf: &crate::token::DebugInfo, source: &str) {
+    if let Some(value) = operands.pop() {
+        if !operands.is_empty() {
+            dbginf.print(MessageType::Error, format!("Expr does't resolve to a single value but multiple").as_str(), source);
+            panic!();
+        }
+
+        if let Some(typ) = typ {
+            if !typ.is_equal(value) {
+                dbginf.print(MessageType::Error, format!("Variable has type {:?} but {:?} was given", typ, value).as_str(), source);
+                panic!();
+            }
+        } else {
+            // assign a type to untyped variable
+            dbginf.print(MessageType::Info, format!("Variable has no fixed type, guessing type: {:?}", value).as_str(), source);
+
+            *typ = Some(value);
+        }
+        
+    } else {
+        dbginf.print(MessageType::Error, "No result to bind variable to", source);
+        panic!();
+    }
+}
+
+fn process_keyword(keyword: Keyword, _: &Vec<Declr>, _: &mut Scope, operands: &mut Vec<Prim>, dbginf: &crate::token::DebugInfo, source: &str) {
+    match keyword {
+        Keyword::If => {
+            if operands.len() != 1 {
+                dbginf.print(MessageType::Error, format!("Expected single boolean got {} values", operands.len()).as_str(), source);
+                panic!();
+            }
+
+            if let Some(operand) = operands.pop() {
+                match operand {
+                    Prim::Bool => (),
+                    _ => {
+                        dbginf.print(MessageType::Error, format!("Expected boolean, got {:?}", operand).as_str(), source);
+                        panic!();
+                    }
+                }
+            }
+        },
+        _ => ()
+    }
+}
+
+fn collapse_operation(operation: &Token, declrs: &Vec<Declr>, scope: &mut Scope, operands: &mut Vec<Prim>, source: &str) {
+    match operation {
+        Token::Operator(op, dbginf) => op.operate(operands, &dbginf, source),
+        Token::Assign(name, mut typ, dbginf) => {
+            check_var_typ(&mut typ, operands, &dbginf, source);
+            scope.decl_var((*name).to_owned(), typ.to_owned());
+        },
+        Token::Func(name, dbginf) => call_func(name, declrs, scope, operands, &dbginf, source),
+        Token::Keyword(keyword, dbginf) => process_keyword(*keyword, declrs, scope, operands, &dbginf, source),
+        _ => ()
+    }
+}
+
+fn call_func(name: &str, declrs: &Vec<Declr>, scope: &mut Scope, operands: &mut Vec<Prim>, dbginf: &crate::token::DebugInfo, source: &str) {
+    for declr in declrs {
+        if declr.name.is_some() && declr.name.unwrap() == name {
+
+            if let Some(args) = &declr.args {
+
+                if args.len() > operands.len() {
+                    dbginf.print(MessageType::Error, format!("Expected {} parameters but got {}", args.len(), operands.len()).as_str(), source);
+                    panic!()
+                }
+
+                for (x, arg) in args.iter().enumerate() {
+                    let operand = operands.first().unwrap();
+
+                    if !operand.is_equal(arg.1) {
+                        dbginf.print(MessageType::Error, format!("Expected {:?} as parameter {x}, but got {:?}", arg, operand).as_str(), source);
+                        panic!()
+                    }
+
+                    operands.remove(0);
+                }
+            }
+
+            // TODO: push result type
+            // operands.push();
+
+            break
+        }
+    }
+}
+
 /// parse a single term using a modified shunting yard
-fn parse_term<'a, 'b>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope, source: &'b str) {
+fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, declrs: &Vec<Declr<'a>>, scope: &mut Scope, source: & str) {
     let mut op_stack = vec![];
     let mut output = VecDeque::with_capacity(term.len());
     let mut value_stack = vec![];
-
-    /*
-    
-    Token::Number(text) => value_stack.push(CompileTimeType::UntypedNum(text)),
-    Token::Bool(_) => value_stack.push(CompileTimeType::Prim(Prim::Bool)),
-    
-    */
 
     'outer:
     while let Some(token) = term.pop_front() {
         match &token {
             Token::Word(text, dbginf) => {
-                if scope.is_func(text) {
+                if is_func(declrs, text) {
                     op_stack.push(Token::Func(text, *dbginf));
                     continue;
                 } else if scope.is_arg(text) {
+                    value_stack.push(scope.get_arg_type(text));
                     output.push_back(Token::Arg(text, *dbginf));
                     continue;
                 } else if scope.is_var(text).is_some() {
+                    value_stack.push(scope.get_var_type(text));
                     output.push_back(Token::Var(text, *dbginf));
                     continue;
                 }
                 dbginf.print(MessageType::Error, "Unknown word", source);
                 panic!()
             }
+            Token::Bool(_, _) => {
+                output.push_back(token);
+                value_stack.push(Prim::Bool)
+            },
             Token::Number(_, _) => {
                 output.push_back(token);
-                value_stack.push(CompileTimeType::UntypedNum)
+                value_stack.push(Prim::UntypedNum)
             },
-            Token::Assign(text, typ, _) => {
-                scope.decl_var((*text).to_owned(), typ.to_owned());
+            Token::Assign(_, _, _) => {
                 op_stack.push(token);
             },
             Token::Keyword(_, _) => op_stack.push(token),
@@ -300,13 +409,20 @@ fn parse_term<'a, 'b>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope, source:
                                 Token::Delemiter(char, _) => if *char == '(' {
                                     if let Some(next) = op_stack.last() {
                                         match &next {
-                                            Token::Func(_, _) => output.push_back(op_stack.pop().unwrap()),
+                                            Token::Func(_, _) => {
+                                                let token = op_stack.pop().unwrap();
+                                                collapse_operation(&token, declrs, scope, &mut value_stack, source);
+                                                output.push_back(token);
+                                            },
                                             _ => ()
                                         }
                                     }
                                     continue 'outer;
                                 },
-                                _ => output.push_back(token)
+                                _ => {
+                                    collapse_operation(&token, declrs, scope, &mut value_stack, source);
+                                    output.push_back(token)
+                                }
                             }
                         }
                         panic!("Mismatched right parenthesis")
@@ -323,6 +439,7 @@ fn parse_term<'a, 'b>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope, source:
                             let prec1 = op1.prec();
 
                             if prec1 > prec0 || prec0 == prec1 && op.assoc() == Assoc::Left {
+                                collapse_operation(top, declrs, scope, &mut value_stack, source);
                                 output.push_back(op_stack.pop().unwrap());
                                 continue
                             }
@@ -342,42 +459,53 @@ fn parse_term<'a, 'b>(term: &mut VecDeque<Token<'a>>, scope: &mut Scope, source:
             Token::Delemiter(char, _) => if *char == '(' {
                 panic!("Mismatched parenthesis")
             },
-            _ => output.push_back(token)
+            _ => {
+                collapse_operation(&token, declrs, scope, &mut value_stack, source);
+                output.push_back(token)
+            }
         }
+    }
+
+    if value_stack.len() > 1 {
+        output[0].print(MessageType::Error, "expression resolves to multiple results", source);
+        panic!();
     }
 
     term.append(&mut output);
 }
 
-enum CompileTimeType {
-    Prim(Prim),
-    UntypedNum,
+fn is_func(declrs: &[Declr], text: &str) -> bool {
+    for declr in declrs {
+        if declr.name.is_some() && declr.name.unwrap() == text {
+            return true;
+        }
+    }
+    return false;
 }
 
-fn parse_block<'a>(block: &mut Block, scope: &mut Scope, source: &'a str) {
+fn parse_block<'a>(block: &mut Block<'a>, declrs: &Vec<Declr<'a>>, scope: &mut Scope, source: &str) {
     scope.alloc_scope();
     for expr in block.iter_mut() {
         match expr {
-            Expr::Block(block) => parse_block(block, scope, source),
-            Expr::Term(term) => parse_term(term, scope, source)
+            Expr::Block(block) => parse_block(block, declrs, scope, source),
+            Expr::Term(term) => parse_term(term, declrs, scope, source)
         }
     }
     scope.pop_scope();
 }
 
-fn parse_exprs<'a>(funcs: &mut Vec<Func<'a>>, source: &'a str) {
+fn parse_exprs<'a>(funcs: &mut Vec<Func<'a>>, declrs: &Vec<Declr<'a>>, source: &'a str) {
     let mut scope = Scope {
-        funcs: funcs.iter().map(|f| f.name.unwrap()).collect(),
         args: None,
         vars: vec![]
     };
 
-    for func in funcs.iter_mut() {
+    for (x, func) in funcs.iter_mut().enumerate() {
         match func.expr.as_mut().expect("Function has no body") {
             Expr::Block(block) => {
-                scope.args = func.args.as_ref();
-
-                parse_block(block, &mut scope, source)
+                scope.args = declrs[x].args.as_ref();
+                
+                parse_block(block, declrs, &mut scope, source)
             },
             _ => panic!("Fatal-Compilier-Error: function must have a block")
         }
@@ -388,10 +516,10 @@ fn parse_exprs<'a>(funcs: &mut Vec<Func<'a>>, source: &'a str) {
 /// any program is made out of functions.
 /// A function has a name followed by an optional parameter list, followed by an optional equal sign and block.
 pub fn parse<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &'a str) -> Vec<Func<'a>> {
-    let mut funcs = discover_functions(tokens, source);
+    let (mut funcs, declrs) = discover_functions(tokens, source);
 
-    discover_exprs(&mut funcs, source);
-    parse_exprs(&mut funcs, source);
+    discover_exprs(&mut funcs, &declrs, source);
+    parse_exprs(&mut funcs, &declrs, source);
 
     funcs.iter().for_each(|f| println!("{:?}", f));
 

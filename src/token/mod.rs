@@ -79,6 +79,95 @@ impl Operator {
             _ => Assoc::Right
         }
     }
+
+    fn present_types(operands: &[Prim], types: &[Prim], r#yield: Prim, dbginf: &DebugInfo, source: &str) -> Option<Prim> {
+        if operands.len() < types.len() {
+            dbginf.print(MessageType::Error, format!("Missing {} operands", types.len() - operands.len()).as_str(), source);
+            panic!()
+        }
+
+        for (x, typ) in types.iter().enumerate() {
+            if typ != &operands[x] {
+                return None
+            }
+        }
+        Some(r#yield)
+    }
+
+    fn check_types(operands: &[Prim], types: &[(Vec<Prim>, Prim)], dbginf: &DebugInfo, source: &str) -> Option<Prim> {
+        for combination in types.iter() {
+
+            if let Some(result) = Self::present_types(operands, &combination.0, combination.1, dbginf, source) {
+                return Some(result);
+            }
+        }
+        None
+    }
+
+    pub fn operate(&self, operands: &mut Vec<Prim>, dbginf: &DebugInfo, source: &str) {
+        match self {
+            Operator::Add | Operator::Sub | Operator::Mul | Operator::Div=> {
+                let types_valid = Self::check_types(operands, &[
+                    //   +-----------------------------------+---------------------------------+
+                    //   |  Parameter list of types          | result type                     |
+                    //   +-----------------------------------+---------------------------------+
+                    (vec![Prim::Int,         Prim::Int       ], Prim::Int ),
+                    (vec![Prim::Real,        Prim::Real      ], Prim::Real),
+                    (vec![Prim::UntypedNum,  Prim::Int       ], Prim::Int ),
+                    (vec![Prim::UntypedNum,  Prim::Real      ], Prim::Real),
+                    (vec![Prim::Int,         Prim::UntypedNum], Prim::Int ),
+                    (vec![Prim::Real,        Prim::UntypedNum], Prim::Real),
+                    (vec![Prim::UntypedNum,  Prim::UntypedNum], Prim::UntypedNum)
+                ], dbginf, source);
+
+                if let Some(result) = types_valid {
+                    operands.pop();
+                    operands.pop();
+                    operands.push(result);
+                } else {
+                    dbginf.print(MessageType::Error, format!("Missmatched types for {:?}, expected either two integer or reals", self).as_str(), source);
+                    panic!()
+                }
+            },
+            Operator::And | Operator::Or | Operator::Xor => {
+                let types_valid = Self::check_types(operands, &[
+                    (vec![Prim::Bool, Prim::Bool ], Prim::Bool),
+                ], dbginf, source);
+
+                if let Some(result) = types_valid {
+                    operands.pop();
+                    operands.pop();
+                    operands.push(result);
+                } else {
+                    dbginf.print(MessageType::Error, format!("Missmatched types for {:?}, expected two booleans", self).as_str(), source);
+                    panic!()
+                }
+            },
+            Operator::Eq | Operator::NotEq | Operator::Lt | Operator::Gt | Operator::GtEq | Operator::LtEq   => {
+                let types_valid = Self::check_types(operands, &[
+                    (vec![Prim::Int,        Prim::Int       ], Prim::Bool ),
+                    (vec![Prim::Real,       Prim::Real      ], Prim::Bool ),
+                    (vec![Prim::UntypedNum, Prim::Int       ], Prim::Bool ),
+                    (vec![Prim::UntypedNum, Prim::Real      ], Prim::Bool ),
+                    (vec![Prim::Int,        Prim::UntypedNum], Prim::Bool ),
+                    (vec![Prim::Real,       Prim::UntypedNum], Prim::Bool ),
+                    (vec![Prim::UntypedNum, Prim::UntypedNum], Prim::Bool )
+                ], dbginf, source);
+
+                if let Some(result) = types_valid {
+                    println!("checked: {:?} for: {:?}", self, operands);
+
+                    operands.pop();
+                    operands.pop();
+                    operands.push(result);
+                } else {
+                    dbginf.print(MessageType::Error, format!("Missmatched types for {:?}, expected two numbers", self).as_str(), source);
+                    panic!()
+                }
+            },
+            _ => panic!("Unknown operator: {:?}", self)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -94,7 +183,7 @@ pub enum Keyword {
 impl Keyword {
     pub fn parse<'a>(text: &'a str) -> Keyword {
         return match text {
-            "if" => Keyword::If,
+            "unless" => Keyword::If,
             "while" => Keyword::While,
             "loop" => Keyword::Loop,
             "break" => Keyword::Break,
@@ -110,6 +199,7 @@ pub enum Prim {
     Int,
     Real,
     Bool,
+    UntypedNum
 }
 
 impl Prim {
@@ -123,6 +213,24 @@ impl Prim {
                 dbginf.print(MessageType::Error, "Unknown type declaration", source);
                 panic!()
             }
+        }
+    }
+
+    pub fn is_equal(&self, value: Prim) -> bool {
+        return match self {
+            Prim::Bool => *self == value,
+            Prim::Real => return match value {
+                Prim::UntypedNum => true,
+                _ => *self == value,
+            },
+            Prim::Int => return match value {
+                Prim::UntypedNum => true,
+                _ => *self == value,
+            },
+            Prim::UntypedNum => return match value {
+                Prim::Real | Prim::Int => true,
+                _ => *self == value,
+            }, 
         }
     }
 }
@@ -217,7 +325,7 @@ impl<'a> Token<'a> {
     }
 }
 
-const TOKEN_REGEX_SRC: &'static str = r"(#.*)|(if|while|loop|break|continue)|(true|false|yes|no|maybe)|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))?\s*=|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>])|([(){}])|(\n)";
+const TOKEN_REGEX_SRC: &'static str = r"(#.*)|(unless|while|loop|break|continue)|(true|false|ye|no|maybe)|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))?\s*=|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>])|([(){}])|(\n)";
 
 lazy_static::lazy_static! {
     static ref TOKEN_REGEX: regex::Regex = regex::Regex::new(TOKEN_REGEX_SRC).unwrap();
@@ -291,7 +399,7 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
 }
 
 fn parse_bool(text: &str) -> bool {
-    return match text.to_ascii_lowercase().as_str() {
+    return match text {
         "true" | "ye" => true,
         "false" |"no" => false,
         "maybe" => rand::random(),

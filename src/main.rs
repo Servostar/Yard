@@ -20,19 +20,15 @@ fn main() {
 r"
 pi = 3.1415926535
 
-sin(x: f4) = { {
-    x
+foo(x:i4, y:f4) {
+    
 }
 
-man() {
-
-    x:i4 = 0
-    loop {
-        x = x + 1
-        if sin(x > 5) {
-            break
-        }
-    }
+main() {
+    a:i4 = 8
+    b:f4 = 9
+    
+    foo(a, 6)
 }
 ";
 
