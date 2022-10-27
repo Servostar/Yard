@@ -18,17 +18,19 @@ fn main() {
 
     let source =
 r"
-pi = 3.1415926535
+#pi = 3.1415926535
 
-foo(x:i4, y:f4) {
+foo(x :int, y: rat) = bool {
     
 }
 
-main() {
-    a:i4 = 8
-    b:f4 = 9
-    
-    foo(a, 6)
+main  {
+    unless 3 > 4 {
+        a = 4 + 5;
+        b = 0.3 + 7;
+
+        foo(a, b)
+    }
 }
 ";
 

@@ -22,9 +22,14 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str)
     let mut single_line = false;
 
     macro_rules! finish_func {
-        () => {
+        ($dbginf:expr) => {
             if declrs.contains(&declr) {
                 panic!("Function defined multiple times: {declr}")
+            }
+
+            if declr.results && declr.result_typ.is_none() {
+                $dbginf.print(MessageType::Error, format!("Function is missing return type: {}", declr).as_str(), source);
+                panic!();
             }
 
             funcs.push(func);
@@ -62,15 +67,25 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str)
                 '}' => {
                     brace_cnt -= 1;
                     if brace_cnt == 0 {
-                        finish_func!();
+                        finish_func!(dbginf);
                         continue;
                     }
                 }
                 _ => ()
             }
+
+            Token::Type(typ, dbginf) => {
+                if declr.results {
+                    declr.result_typ = Some(*typ);
+                    continue;
+                } else {
+                    dbginf.print(MessageType::Error, "Missing equal sign", source);
+                    panic!();
+                }
+            },
             
-            Token::LineBreak(_) => if single_line {
-                finish_func!();
+            Token::LineBreak(dbginf) => if single_line {
+                finish_func!(dbginf);
                 continue;
             }
 
@@ -98,6 +113,23 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str)
                     }
                     _ => ()
                 }
+
+                Token::Word(text, dbginf) => {
+        
+                    if declr.name.is_some() {
+                        if declr.args.is_none() {
+                            dbginf.print(MessageType::Error, "multiple function names", source);
+                            panic!();
+                        }
+                    } else if brace_cnt > 0 {
+                        dbginf.print(MessageType::Error, "brace count missmatch", source);
+                        panic!();
+                    }
+                    else {
+                        declr.name = Some(text);
+                        continue;
+                    }
+                },
 
                 Token::Assign(name, _, dbginf) => {
                     if declr.results {
@@ -138,23 +170,6 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str)
                         }
                     }
                     _ => ()
-                }
-    
-                Token::Word(text, dbginf) => {
-    
-                    if declr.name.is_some() {
-                        if declr.args.is_none() {
-                            dbginf.print(MessageType::Error, "multiple function names", source);
-                            panic!();
-                        }
-                    } else if brace_cnt > 0 {
-                        dbginf.print(MessageType::Error, "brace count missmatch", source);
-                        panic!();
-                    }
-                    else {
-                        declr.name = Some(text);
-                        continue;
-                    }
                 }
                 _ => ()
             }
@@ -298,7 +313,7 @@ fn check_var_typ(typ: &mut Option<Prim>, operands: &mut Vec<Prim>, dbginf: &crat
 
 fn process_keyword(keyword: Keyword, _: &Vec<Declr>, _: &mut Scope, operands: &mut Vec<Prim>, dbginf: &crate::token::DebugInfo, source: &str) {
     match keyword {
-        Keyword::If => {
+        Keyword::If | Keyword::While => {
             if operands.len() != 1 {
                 dbginf.print(MessageType::Error, format!("Expected single boolean got {} values", operands.len()).as_str(), source);
                 panic!();
@@ -331,7 +346,7 @@ fn collapse_operation(operation: &Token, declrs: &Vec<Declr>, scope: &mut Scope,
     }
 }
 
-fn call_func(name: &str, declrs: &Vec<Declr>, scope: &mut Scope, operands: &mut Vec<Prim>, dbginf: &crate::token::DebugInfo, source: &str) {
+fn call_func(name: &str, declrs: &Vec<Declr>, _: &mut Scope, operands: &mut Vec<Prim>, dbginf: &crate::token::DebugInfo, source: &str) {
     for declr in declrs {
         if declr.name.is_some() && declr.name.unwrap() == name {
 
@@ -391,9 +406,9 @@ fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, declrs: &Vec<Declr<'a>>, scope
                 output.push_back(token);
                 value_stack.push(Prim::Bool)
             },
-            Token::Number(_, _) => {
+            Token::Number(_, hint, _) => {
                 output.push_back(token);
-                value_stack.push(Prim::UntypedNum)
+                value_stack.push(Prim::UntypedNum(*hint))
             },
             Token::Assign(_, _, _) => {
                 op_stack.push(token);
@@ -521,7 +536,9 @@ pub fn parse<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &'a str) -> Ve
     discover_exprs(&mut funcs, &declrs, source);
     parse_exprs(&mut funcs, &declrs, source);
 
-    funcs.iter().for_each(|f| println!("{:?}", f));
+    for (x, f) in funcs.iter().enumerate() {
+        println!("{:?}{:?}", declrs[x], f);
+    }
 
     funcs
 }

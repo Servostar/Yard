@@ -108,16 +108,21 @@ impl Operator {
         match self {
             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div=> {
                 let types_valid = Self::check_types(operands, &[
-                    //   +-----------------------------------+---------------------------------+
-                    //   |  Parameter list of types          | result type                     |
-                    //   +-----------------------------------+---------------------------------+
-                    (vec![Prim::Int,         Prim::Int       ], Prim::Int ),
-                    (vec![Prim::Real,        Prim::Real      ], Prim::Real),
-                    (vec![Prim::UntypedNum,  Prim::Int       ], Prim::Int ),
-                    (vec![Prim::UntypedNum,  Prim::Real      ], Prim::Real),
-                    (vec![Prim::Int,         Prim::UntypedNum], Prim::Int ),
-                    (vec![Prim::Real,        Prim::UntypedNum], Prim::Real),
-                    (vec![Prim::UntypedNum,  Prim::UntypedNum], Prim::UntypedNum)
+                    //   +-------------------------------------------------------------------------------+---------------------------------+
+                    //   |  Parameter list of types                                                      | result type                     |
+                    //   +-------------------------------------------------------------------------------+---------------------------------+
+                    (vec![Prim::Int,                               Prim::Int                             ], Prim::Int),
+                    (vec![Prim::Rat,                               Prim::Rat                             ], Prim::Rat),
+                    (vec![Prim::UntypedNum(NumberClassHint::Int),  Prim::Int                             ], Prim::Int),
+                    (vec![Prim::UntypedNum(NumberClassHint::Int),  Prim::Rat                             ], Prim::Rat),
+                    (vec![Prim::UntypedNum(NumberClassHint::Rat),  Prim::Rat                             ], Prim::Rat),
+                    (vec![Prim::Int,                               Prim::UntypedNum(NumberClassHint::Int)], Prim::Int),
+                    (vec![Prim::Rat,                               Prim::UntypedNum(NumberClassHint::Rat)], Prim::Rat),
+                    (vec![Prim::Rat,                               Prim::UntypedNum(NumberClassHint::Int)], Prim::Rat),
+                    (vec![Prim::UntypedNum(NumberClassHint::Rat),  Prim::UntypedNum(NumberClassHint::Rat)], Prim::Rat),
+                    (vec![Prim::UntypedNum(NumberClassHint::Int),  Prim::UntypedNum(NumberClassHint::Rat)], Prim::Rat),
+                    (vec![Prim::UntypedNum(NumberClassHint::Rat),  Prim::UntypedNum(NumberClassHint::Int)], Prim::Rat),
+                    (vec![Prim::UntypedNum(NumberClassHint::Int),  Prim::UntypedNum(NumberClassHint::Int)], Prim::Int)
                 ], dbginf, source);
 
                 if let Some(result) = types_valid {
@@ -125,7 +130,7 @@ impl Operator {
                     operands.pop();
                     operands.push(result);
                 } else {
-                    dbginf.print(MessageType::Error, format!("Missmatched types for {:?}, expected either two integer or reals", self).as_str(), source);
+                    dbginf.print(MessageType::Error, format!("Missmatched types for {:?}, expected either two integer or rationals", self).as_str(), source);
                     panic!()
                 }
             },
@@ -145,17 +150,20 @@ impl Operator {
             },
             Operator::Eq | Operator::NotEq | Operator::Lt | Operator::Gt | Operator::GtEq | Operator::LtEq   => {
                 let types_valid = Self::check_types(operands, &[
-                    (vec![Prim::Int,        Prim::Int       ], Prim::Bool ),
-                    (vec![Prim::Real,       Prim::Real      ], Prim::Bool ),
-                    (vec![Prim::UntypedNum, Prim::Int       ], Prim::Bool ),
-                    (vec![Prim::UntypedNum, Prim::Real      ], Prim::Bool ),
-                    (vec![Prim::Int,        Prim::UntypedNum], Prim::Bool ),
-                    (vec![Prim::Real,       Prim::UntypedNum], Prim::Bool ),
-                    (vec![Prim::UntypedNum, Prim::UntypedNum], Prim::Bool )
+                   //   +-------------------------------------------------------------------------------+---------------------------------+
+                   //   |  Parameter list of types                                                      | result type                     |
+                   //   +-------------------------------------------------------------------------------+---------------------------------+
+                    (vec![Prim::Int,                              Prim::Int                             ], Prim::Bool ),
+                    (vec![Prim::Rat,                              Prim::Rat                             ], Prim::Bool ),
+                    (vec![Prim::UntypedNum(NumberClassHint::Int), Prim::Int                             ], Prim::Bool ),
+                    (vec![Prim::UntypedNum(NumberClassHint::Rat), Prim::Rat                             ], Prim::Bool ),
+                    (vec![Prim::Int,                              Prim::UntypedNum(NumberClassHint::Int)], Prim::Bool ),
+                    (vec![Prim::Rat,                              Prim::UntypedNum(NumberClassHint::Rat)], Prim::Bool ),
+                    (vec![Prim::UntypedNum(NumberClassHint::Rat), Prim::UntypedNum(NumberClassHint::Rat)], Prim::Bool ),
+                    (vec![Prim::UntypedNum(NumberClassHint::Int), Prim::UntypedNum(NumberClassHint::Int)], Prim::Bool )
                 ], dbginf, source);
 
                 if let Some(result) = types_valid {
-                    println!("checked: {:?} for: {:?}", self, operands);
 
                     operands.pop();
                     operands.pop();
@@ -194,19 +202,36 @@ impl Keyword {
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+pub enum NumberClassHint {
+    Int,
+    Rat
+}
+
+impl NumberClassHint {
+    
+    pub fn from(str: &str) -> NumberClassHint {
+        if str.parse::<i32>().is_err() {
+            return NumberClassHint::Rat;
+        }
+
+        NumberClassHint::Int
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 /// primitve types
 pub enum Prim {
     Int,
-    Real,
+    Rat,
     Bool,
-    UntypedNum
+    UntypedNum(NumberClassHint)
 }
 
 impl Prim {
     fn from<'a>(text: &'a str, dbginf: &DebugInfo, source: &str) -> Prim {
         return match text {
-            "i4" => Prim::Int,
-            "f4" => Prim::Real,
+            "int" => Prim::Int,
+            "rat" => Prim::Rat,
             "bool" => Prim::Bool,
 
             _ => {
@@ -219,16 +244,21 @@ impl Prim {
     pub fn is_equal(&self, value: Prim) -> bool {
         return match self {
             Prim::Bool => *self == value,
-            Prim::Real => return match value {
-                Prim::UntypedNum => true,
+            Prim::Rat => return match value {
+                Prim::UntypedNum(NumberClassHint::Int) => true,
+                Prim::UntypedNum(NumberClassHint::Rat) => true,
                 _ => *self == value,
             },
             Prim::Int => return match value {
-                Prim::UntypedNum => true,
+                Prim::UntypedNum(NumberClassHint::Int) => true,
                 _ => *self == value,
             },
-            Prim::UntypedNum => return match value {
-                Prim::Real | Prim::Int => true,
+            Prim::UntypedNum(NumberClassHint::Rat) => return match value {
+                Prim::Rat | Prim::Int => true,
+                _ => *self == value,
+            }, 
+            Prim::UntypedNum(NumberClassHint::Int) => return match value {
+                Prim::Int => true,
                 _ => *self == value,
             }, 
         }
@@ -289,7 +319,7 @@ pub enum Token<'a> {
     /// Single symbol delemiter like ```(```,```}```
     Delemiter(char, DebugInfo),
     Operator(Operator, DebugInfo),
-    Number(&'a str, DebugInfo),
+    Number(&'a str, NumberClassHint, DebugInfo),
     LineBreak(DebugInfo),
     Func(&'a str, DebugInfo),
     /// Variable
@@ -303,16 +333,18 @@ pub enum Token<'a> {
     Bool(bool, DebugInfo),
     /// Keywords like ```if```,```break```,```while```
     Keyword(Keyword, DebugInfo),
+    Type(Prim, DebugInfo)
 }
 
 impl<'a> Token<'a> {
     /// redirect for ```DebugInfo.print()```
     pub fn print(&self, error: MessageType, arg: &str, source: &str) {
         match self {
+            Token::Type(_, dbginf) => dbginf.print(error, arg, source),
             Token::Word(_, dbginf) => dbginf.print(error, arg, source),
             Token::Delemiter(_, dbginf) => dbginf.print(error, arg, source),
             Token::Operator(_, dbginf) => dbginf.print(error, arg, source),
-            Token::Number(_, dbginf) => dbginf.print(error, arg, source),
+            Token::Number(_, _, dbginf) => dbginf.print(error, arg, source),
             Token::LineBreak(dbginf) => dbginf.print(error, arg, source),
             Token::Func(_, dbginf) => dbginf.print(error, arg, source),
             Token::Var(_, dbginf) => dbginf.print(error, arg, source),
@@ -325,7 +357,7 @@ impl<'a> Token<'a> {
     }
 }
 
-const TOKEN_REGEX_SRC: &'static str = r"(#.*)|(unless|while|loop|break|continue)|(true|false|ye|no|maybe)|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))?\s*=|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>])|([(){}])|(\n)";
+const TOKEN_REGEX_SRC: &'static str = r"(#.*)|(unless|while|loop|break|continue)|(int|rat|bool)|(true|false|ye|no|maybe)|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))?\s*=|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>=])|([(){}])|(\n|;)";
 
 lazy_static::lazy_static! {
     static ref TOKEN_REGEX: regex::Regex = regex::Regex::new(TOKEN_REGEX_SRC).unwrap();
@@ -363,8 +395,11 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
 
                 tokens.push_back(match i {
                     2 => Token::Keyword(Keyword::parse(mat.as_str()), debug_info),
-                    3 => Token::Bool(parse_bool(mat.as_str()), debug_info),
-                    4 => {
+                    3 => {
+                        Token::Type(Prim::from(mat.as_str(), &debug_info, source), debug_info)
+                    },
+                    4 => Token::Bool(parse_bool(mat.as_str()), debug_info),
+                    5 => {
                         let var_type = if let Some(mat) = enumerator.next().unwrap().1 {
                             Some(Prim::from(mat.as_str(), &debug_info, source))
                         } else {
@@ -372,15 +407,15 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
                         };
                         Token::Assign(mat.as_str(), var_type, debug_info)
                     },
-                    6 => {
+                    7 => {
                         let var_type = Prim::from(enumerator.next().unwrap().1.unwrap().as_str(), &debug_info, source);
                         Token::Decl(mat.as_str(), var_type, debug_info)
                     },
-                    8 => Token::Word(mat.as_str(), debug_info),
-                    9 => Token::Number(mat.as_str(), debug_info),
-                    10 => Token::Operator(Operator::parse(mat.as_str()), debug_info),
-                    11 => Token::Delemiter(mat.as_str().chars().nth(0).unwrap(), debug_info),
-                    12 => {
+                    9 => Token::Word(mat.as_str(), debug_info),
+                    10 => Token::Number(mat.as_str(), NumberClassHint::from(mat.as_str()), debug_info),
+                    11 => Token::Operator(Operator::parse(mat.as_str()), debug_info),
+                    12 => Token::Delemiter(mat.as_str().chars().nth(0).unwrap(), debug_info),
+                    13 => {
                         line_count += 1;
                         Token::LineBreak(debug_info)
                     },

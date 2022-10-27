@@ -28,6 +28,8 @@ pub struct Declr<'a> {
     pub args: Option<Vec<(&'a str, Prim)>>,
     /// if the function returns a single value
     pub results: bool,
+    /// type of result
+    pub result_typ: Option<Prim>
 }
 
 impl<'a> Declr<'a> {
@@ -35,7 +37,8 @@ impl<'a> Declr<'a> {
         Self {
             name: None,
             args: None,
-            results: false
+            results: false,
+            result_typ: None
         }
     }
 }
