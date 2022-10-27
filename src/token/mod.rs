@@ -36,8 +36,8 @@ impl Operator {
             "^" => Operator::Xor,
 
             "==" => Operator::Eq,
-            "<" => Operator::Lt,
-            ">" => Operator::Gt,
+            "<"  => Operator::Lt,
+            ">"  => Operator::Gt,
             "<=" => Operator::LtEq,
             ">=" => Operator::GtEq,
             "!=" => Operator::NotEq,
@@ -108,9 +108,9 @@ impl Operator {
         match self {
             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div=> {
                 let types_valid = Self::check_types(operands, &[
-                    //   +-------------------------------------------------------------------------------+---------------------------------+
-                    //   |  Parameter list of types                                                      | result type                     |
-                    //   +-------------------------------------------------------------------------------+---------------------------------+
+               //   +------------------------------------------------------------------------------------+---------------------------------+
+               //   |  Parameter list of types                                                           | result type                     |
+               //   +------------------------------------------------------------------------------------+---------------------------------+
                     (vec![Prim::Int,                               Prim::Int                             ], Prim::Int),
                     (vec![Prim::Rat,                               Prim::Rat                             ], Prim::Rat),
                     (vec![Prim::UntypedNum(NumberClassHint::Int),  Prim::Int                             ], Prim::Int),
@@ -150,9 +150,9 @@ impl Operator {
             },
             Operator::Eq | Operator::NotEq | Operator::Lt | Operator::Gt | Operator::GtEq | Operator::LtEq   => {
                 let types_valid = Self::check_types(operands, &[
-                   //   +-------------------------------------------------------------------------------+---------------------------------+
-                   //   |  Parameter list of types                                                      | result type                     |
-                   //   +-------------------------------------------------------------------------------+---------------------------------+
+               //   +------------------------------------------------------------------------------------+---------------------------------+
+               //   |  Parameter list of types                                                           | result type                     |
+               //   +------------------------------------------------------------------------------------+---------------------------------+
                     (vec![Prim::Int,                              Prim::Int                             ], Prim::Bool ),
                     (vec![Prim::Rat,                              Prim::Rat                             ], Prim::Bool ),
                     (vec![Prim::UntypedNum(NumberClassHint::Int), Prim::Int                             ], Prim::Bool ),
@@ -373,7 +373,7 @@ impl<'a> Token<'a> {
     }
 }
 
-const TOKEN_REGEX_SRC: &'static str = r"(#.*|--.*--|//.*|:REM:.*|   .*)|(unless|while|loop|break|cont|ret|yield)|(int|rat|bool)|(true|false|ye|no|maybe)|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))?\s*=|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>=])|([(){}])|(\n)|(;)";
+const TOKEN_REGEX_SRC: &'static str = r"(#.*)|(unless|while|loop|break|cont|ret|yield)|(int|rat|bool)|(true|false|ye|no|maybe)|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))?\s*=|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>=])|([(){}])|(\n)|(;)";
 
 lazy_static::lazy_static! {
     static ref TOKEN_REGEX: regex::Regex = regex::Regex::new(TOKEN_REGEX_SRC).unwrap();

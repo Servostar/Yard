@@ -24,18 +24,14 @@ pi = rat 3.1415926535
 foo(x :int, y: rat) = bool {
     yield maybe
 }
-   comment
-main  {
-    -- comment --
+
+main {
+
     unless 3 > 4 {
-        a = 4 - 5;  // also comment
+        a = 4 - 5;
         b:rat = 0.3 + 7
 
-       t = foo(a, b) :REM: comment 3
-    }
-
-    don't {
-
+       t = foo(a, b)
     }
 }
 ";

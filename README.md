@@ -6,10 +6,9 @@ It contains features such as:
 
 1.  a COMEFROM keyword (inverse goto)
 2.  a `don't` code block which never executes
-3.  `rand(x)` returns x, always.
-4.  no if. only `unless`, an inverted version of if. Meaning a block gets executed if the expression is false
-5.  three spaces start a single line comment
-6.  many ways of making comments: `// comment`, `:REM: comment`, `# comment`, `-- comment --` cuz we can
+3.  no if. only `unless`, an inverted version of if. Meaning a block gets executed if the expression is false
+4.  three spaces start a single line comment
+5.  many ways of making comments: `// comment`, `:REM: comment`, `# comment`, `-- comment --` cuz we can
 
 ### Keywords
 

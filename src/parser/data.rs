@@ -84,6 +84,11 @@ pub struct Scope<'a> {
     pub args: Option<&'a Vec<(&'a str, Prim)>>,
     /// stack of scoped block variables
     pub vars: Vec<Vec<(String, Option<Prim>)>>,
+    pub func_return_typ: Option<Prim>,
+    /// if we safely yielded sth
+    pub yields: bool,
+    /// if the current location in the scope is fixed in execution (no loop, no unless)
+    pub cond_scope: bool
 }
 
 impl<'a> Scope<'a> {

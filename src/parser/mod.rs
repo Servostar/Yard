@@ -316,7 +316,7 @@ fn check_var_typ(typ: &mut Option<Prim>, operands: &mut Vec<Prim>, dbginf: &crat
     }
 }
 
-fn process_keyword(keyword: Keyword, _: &Vec<Declr>, _: &mut Scope, operands: &mut Vec<Prim>, dbginf: &crate::token::DebugInfo, source: &str) {
+fn process_keyword(keyword: Keyword, _: &Vec<Declr>, scope: &mut Scope, operands: &mut Vec<Prim>, dbginf: &crate::token::DebugInfo, source: &str) {
     match keyword {
         Keyword::If | Keyword::While => {
             if operands.len() != 1 {
@@ -334,6 +334,36 @@ fn process_keyword(keyword: Keyword, _: &Vec<Declr>, _: &mut Scope, operands: &m
                 }
             }
         },
+        Keyword::Return => {
+            if scope.func_return_typ.is_some() {
+                dbginf.print(MessageType::Error, "cannot return function, did u mean to use `yield`?", source);
+                panic!();
+            }
+        }
+        Keyword::Yield => {
+            if operands.len() != 1 {
+                dbginf.print(MessageType::Error, format!("Expected single value but got {} values", operands.len()).as_str(), source);
+                panic!();
+            }
+
+            if let Some(operand) = operands.pop() {
+                if let Some(typ) = scope.func_return_typ {
+                    if typ != operand {
+                        dbginf.print(MessageType::Error, format!("Expected {:?} but got {:?}", typ, operand).as_str(), source);
+                        panic!();
+                    }
+                    if scope.cond_scope {
+                        scope.yields = true;
+                    }
+                } else {
+                    dbginf.print(MessageType::Error, format!("Function does not return anything").as_str(), source);
+                    panic!();
+                }
+            } else {
+                dbginf.print(MessageType::Error, format!("Yield must return something").as_str(), source);
+                panic!();
+            }
+        }
         _ => ()
     }
 }
@@ -518,15 +548,26 @@ fn parse_block<'a>(block: &mut Block<'a>, declrs: &Vec<Declr<'a>>, scope: &mut S
 fn parse_exprs<'a>(funcs: &mut Vec<Func<'a>>, declrs: &Vec<Declr<'a>>, source: &'a str) {
     let mut scope = Scope {
         args: None,
-        vars: vec![]
+        vars: vec![],
+        func_return_typ: None,
+        cond_scope: false,
+        yields: false,
     };
 
     for (x, func) in funcs.iter_mut().enumerate() {
         match func.expr.as_mut().expect("Function has no body") {
             Expr::Block(block) => {
                 scope.args = declrs[x].args.as_ref();
+                scope.func_return_typ = declrs[x].result_typ;
+                scope.cond_scope = false;
+                scope.yields = false;
                 
-                parse_block(block, declrs, &mut scope, source)
+                parse_block(block, declrs, &mut scope, source);
+
+                if scope.func_return_typ.is_some() && !scope.yields {
+                    crate::message(MessageType::Error, format!("Function {} missing return value at some point", declrs[x]));
+                    panic!();
+                }
             },
             _ => panic!("Fatal-Compilier-Error: function must have a block")
         }
@@ -545,6 +586,6 @@ pub fn parse<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &'a str) -> Ve
     for (x, f) in funcs.iter().enumerate() {
         println!("{:#?}{:#?}", declrs[x], f);
     }
-
+ 
     funcs
 }
