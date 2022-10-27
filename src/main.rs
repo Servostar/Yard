@@ -18,18 +18,24 @@ fn main() {
 
     let source =
 r"
-#pi = 3.1415926535
+# this is pi
+pi = rat 3.1415926535
 
 foo(x :int, y: rat) = bool {
-    
+    yield maybe
 }
-
+   comment
 main  {
+    -- comment --
     unless 3 > 4 {
-        a = 4 + 5;
-        b = 0.3 + 7;
+        a = 4 - 5;  // also comment
+        b:rat = 0.3 + 7
 
-        foo(a, b)
+       t = foo(a, b) :REM: comment 3
+    }
+
+    don't {
+
     }
 }
 ";

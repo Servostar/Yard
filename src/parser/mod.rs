@@ -76,6 +76,11 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str)
 
             Token::Type(typ, dbginf) => {
                 if declr.results {
+                    if declr.result_typ.is_some() {
+                        dbginf.print(MessageType::Error, "Function must return either nothing or a single type", source);
+                        panic!();
+                    }
+
                     declr.result_typ = Some(*typ);
                     continue;
                 } else {
@@ -202,7 +207,7 @@ fn discover_functions<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &str)
 
         // if we have anything left it might be an error
         match &top {
-            Token::LineBreak(_) => (), // valid whitespace
+            Token::LineBreak(_) | Token::Terminator(_) => (), // valid whitespace
             _ => {
                 top.print(MessageType::Error, "unresolvable token", source);
                 panic!()
@@ -233,7 +238,7 @@ fn discover_exprs<'a>(functions: &mut Vec<Func<'a>>, _: &Vec<Declr<'a>>, source:
         while let Some(top) = func.raw.as_mut().unwrap().pop_front() {
 
             match &top {
-                Token::LineBreak(dbginf) => if !expr.is_empty() {
+                Token::LineBreak(dbginf) | Token::Terminator(dbginf) => if !expr.is_empty() {
                     blocks.last_mut().unwrap_or_else(|| {
                         dbginf.print(MessageType::Error, "curly brace missmatch", source);
                         panic!()
@@ -369,8 +374,9 @@ fn call_func(name: &str, declrs: &Vec<Declr>, _: &mut Scope, operands: &mut Vec<
                 }
             }
 
-            // TODO: push result type
-            // operands.push();
+            if let Some(typ) = declr.result_typ {
+                operands.push(typ);
+            }
 
             break
         }
@@ -537,7 +543,7 @@ pub fn parse<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &'a str) -> Ve
     parse_exprs(&mut funcs, &declrs, source);
 
     for (x, f) in funcs.iter().enumerate() {
-        println!("{:?}{:?}", declrs[x], f);
+        println!("{:#?}{:#?}", declrs[x], f);
     }
 
     funcs

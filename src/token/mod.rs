@@ -186,6 +186,8 @@ pub enum Keyword {
     Loop,
     Break,
     Continue,
+    Return,
+    Yield
 }
 
 impl Keyword {
@@ -195,7 +197,9 @@ impl Keyword {
             "while" => Keyword::While,
             "loop" => Keyword::Loop,
             "break" => Keyword::Break,
-            "continue" => Keyword::Continue,
+            "cont" => Keyword::Continue,
+            "ret" => Keyword::Return,
+            "yield" => Keyword::Yield,
             _ => panic!("Text not a known keyword {text}")
         }
     }
@@ -267,9 +271,9 @@ impl Prim {
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct DebugInfo {
-    /// index in source string where the token begins
+    /// index in source string where the token begins in the current line
     start: usize,
-    /// index in source string where the token ends
+    /// index in source string where the token ends  in the current line
     end: usize,
     /// line number where the line in which the token is begins
     line: usize
@@ -303,10 +307,19 @@ impl DebugInfo {
     /// Error (message) in line 7: token `code`
     ///  somewhere in here:
     ///   --> `code line`
+    ///        ^^^^
     /// ```
     pub fn print<'a>(&self, typ: MessageType, msg: &str, source: &'a str) {
         println!("{} ({}) in line {}: token `{}`", typ.to_colored(), msg.bold().bright_white(), self.line, &source[self.start..self.end].bold());
-        println!(" somewhere in here:\n  --> `{}`\n", source.lines().nth(self.line).unwrap().trim().bold().bright_white())
+        println!(" somewhere in here:\n  --> `{}`", source.lines().nth(self.line).unwrap().trim().bold().bright_white());
+        
+        for _ in 0..self.start + 6 {
+            print!(" ");
+        }
+        for _ in self.start..self.end {
+            print!("^");
+        }
+        println!("\n");
     }
 }
 
@@ -333,7 +346,9 @@ pub enum Token<'a> {
     Bool(bool, DebugInfo),
     /// Keywords like ```if```,```break```,```while```
     Keyword(Keyword, DebugInfo),
-    Type(Prim, DebugInfo)
+    Type(Prim, DebugInfo),
+    /// Semicolon
+    Terminator(DebugInfo)
 }
 
 impl<'a> Token<'a> {
@@ -353,11 +368,12 @@ impl<'a> Token<'a> {
             Token::Decl(_, _, dbginf) => dbginf.print(error, arg, source),
             Token::Bool(_, dbginf) => dbginf.print(error, arg, source),
             Token::Keyword(_, dbginf) => dbginf.print(error, arg, source),
+            Token::Terminator(dbginf) => dbginf.print(error, arg, source),
         }
     }
 }
 
-const TOKEN_REGEX_SRC: &'static str = r"(#.*)|(unless|while|loop|break|continue)|(int|rat|bool)|(true|false|ye|no|maybe)|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))?\s*=|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>=])|([(){}])|(\n|;)";
+const TOKEN_REGEX_SRC: &'static str = r"(#.*|--.*--|//.*|:REM:.*|   .*)|(unless|while|loop|break|cont|ret|yield)|(int|rat|bool)|(true|false|ye|no|maybe)|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))?\s*=|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>=])|([(){}])|(\n)|(;)";
 
 lazy_static::lazy_static! {
     static ref TOKEN_REGEX: regex::Regex = regex::Regex::new(TOKEN_REGEX_SRC).unwrap();
@@ -368,6 +384,7 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
     let mut tokens = VecDeque::new();
 
     let mut line_count = 0;
+    let mut line_start = 0;
 
     for cap in TOKEN_REGEX.captures_iter(source) {
         let mut enumerator = cap.iter().enumerate();
@@ -388,8 +405,8 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
             // if we have a match, save it as token
             if let Some(mat) = group {
                 let debug_info = DebugInfo {
-                    start: mat.start(),
-                    end: mat.end(),
+                    start: mat.start() - line_start,
+                    end: mat.end() - line_start,
                     line: line_count
                 };
 
@@ -417,8 +434,10 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
                     12 => Token::Delemiter(mat.as_str().chars().nth(0).unwrap(), debug_info),
                     13 => {
                         line_count += 1;
+                        line_start = mat.start();
                         Token::LineBreak(debug_info)
                     },
+                    14 => Token::Terminator(debug_info),
 
                     _ => {
                         debug_info.print(MessageType::Error, "Unable to identify sequence as token", source);
