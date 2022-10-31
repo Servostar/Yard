@@ -352,9 +352,8 @@ fn process_keyword(keyword: Keyword, _: &Vec<Declr>, scope: &mut Scope, operands
                         dbginf.print(MessageType::Error, format!("Expected {:?} but got {:?}", typ, operand).as_str(), source);
                         panic!();
                     }
-                    if scope.cond_scope {
-                        scope.yields = true;
-                    }
+                    println!("{}", scope.cond_count);
+                    scope.yields = scope.cond_count == 1;
                 } else {
                     dbginf.print(MessageType::Error, format!("Function does not return anything").as_str(), source);
                     panic!();
@@ -522,6 +521,15 @@ fn parse_term<'a>(term: &mut VecDeque<Token<'a>>, declrs: &Vec<Declr<'a>>, scope
         panic!();
     }
 
+    scope.expr_yield = value_stack.len() == 1;
+    if scope.expr_yield {
+        let yielded = value_stack.pop().unwrap();
+        if !yielded.is_equal(scope.func_return_typ.unwrap()) {
+            output[0].print(MessageType::Error, format!("expected {:?} but got {:?}", scope.func_return_typ.unwrap(), yielded).as_str(), source);
+            panic!();
+        }
+    }
+
     term.append(&mut output);
 }
 
@@ -535,6 +543,7 @@ fn is_func(declrs: &[Declr], text: &str) -> bool {
 }
 
 fn parse_block<'a>(block: &mut Block<'a>, declrs: &Vec<Declr<'a>>, scope: &mut Scope, source: &str) {
+    scope.cond_count += 1;
     scope.alloc_scope();
     for expr in block.iter_mut() {
         match expr {
@@ -543,6 +552,7 @@ fn parse_block<'a>(block: &mut Block<'a>, declrs: &Vec<Declr<'a>>, scope: &mut S
         }
     }
     scope.pop_scope();
+    scope.cond_count -= 1;
 }
 
 fn parse_exprs<'a>(funcs: &mut Vec<Func<'a>>, declrs: &Vec<Declr<'a>>, source: &'a str) {
@@ -550,8 +560,9 @@ fn parse_exprs<'a>(funcs: &mut Vec<Func<'a>>, declrs: &Vec<Declr<'a>>, source: &
         args: None,
         vars: vec![],
         func_return_typ: None,
-        cond_scope: false,
+        expr_yield: false,
         yields: false,
+        cond_count: 0
     };
 
     for (x, func) in funcs.iter_mut().enumerate() {
@@ -559,12 +570,12 @@ fn parse_exprs<'a>(funcs: &mut Vec<Func<'a>>, declrs: &Vec<Declr<'a>>, source: &
             Expr::Block(block) => {
                 scope.args = declrs[x].args.as_ref();
                 scope.func_return_typ = declrs[x].result_typ;
-                scope.cond_scope = false;
                 scope.yields = false;
+                scope.cond_count = 0;
                 
                 parse_block(block, declrs, &mut scope, source);
 
-                if scope.func_return_typ.is_some() && !scope.yields {
+                if scope.func_return_typ.is_some() && !scope.yields && !scope.expr_yield {
                     crate::message(MessageType::Error, format!("Function {} missing return value at some point", declrs[x]));
                     panic!();
                 }

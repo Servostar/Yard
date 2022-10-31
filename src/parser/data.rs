@@ -87,8 +87,9 @@ pub struct Scope<'a> {
     pub func_return_typ: Option<Prim>,
     /// if we safely yielded sth
     pub yields: bool,
-    /// if the current location in the scope is fixed in execution (no loop, no unless)
-    pub cond_scope: bool
+    /// if the last expr yielded a result
+    pub expr_yield: bool,
+    pub cond_count: usize
 }
 
 impl<'a> Scope<'a> {

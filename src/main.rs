@@ -22,17 +22,21 @@ r"
 pi = rat 3.1415926535
 
 foo(x :int, y: rat) = bool {
-    yield maybe
+    x:int = 5 + 6
+
+    unless(x < 6) {
+        yield true
+
+        unless(x < 6) {
+            yield true
+        }
+    }
+
+    yield false
 }
 
 main {
-
-    unless 3 > 4 {
-        a = 4 - 5;
-        b:rat = 0.3 + 7
-
-       t = foo(a, b)
-    }
+    
 }
 ";
 
