@@ -1,4 +1,4 @@
-use std::{collections::{VecDeque}};
+use std::collections::VecDeque;
 use colored::{Colorize, ColoredString};
 
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
@@ -82,7 +82,7 @@ impl Operator {
 
     fn present_types(operands: &[Prim], types: &[Prim], r#yield: Prim, dbginf: &DebugInfo, source: &str) -> Option<Prim> {
         if operands.len() < types.len() {
-            dbginf.print(MessageType::Error, format!("Missing {} operands", types.len() - operands.len()).as_str(), source);
+            println!("{}", dbginf.make_msg_w_ext(crate::msg::ERR74, format!("required {} got {}", types.len() - operands.len(), operands.len())));
             panic!()
         }
 
@@ -130,7 +130,7 @@ impl Operator {
                     operands.pop();
                     operands.push(result);
                 } else {
-                    dbginf.print(MessageType::Error, format!("Missmatched types for {:?}, expected either two integer or rationals", self).as_str(), source);
+                    println!("{}", dbginf.make_msg_w_ext(crate::msg::ERR73, "expected two numbers"));
                     panic!()
                 }
             },
@@ -144,7 +144,7 @@ impl Operator {
                     operands.pop();
                     operands.push(result);
                 } else {
-                    dbginf.print(MessageType::Error, format!("Missmatched types for {:?}, expected two booleans", self).as_str(), source);
+                    println!("{}", dbginf.make_msg_w_ext(crate::msg::ERR73, "expected two booleans"));
                     panic!()
                 }
             },
@@ -169,11 +169,13 @@ impl Operator {
                     operands.pop();
                     operands.push(result);
                 } else {
-                    dbginf.print(MessageType::Error, format!("Missmatched types for {:?}, expected two numbers", self).as_str(), source);
+                    println!("{}", dbginf.make_msg_w_ext(crate::msg::ERR73, "expected two numbers"));
                     panic!()
                 }
             },
-            _ => panic!("Unknown operator: {:?}", self)
+            _ => {
+                panic!("Unknown operator");
+            }
         }
     }
 }
@@ -187,7 +189,8 @@ pub enum Keyword {
     Break,
     Continue,
     Return,
-    Yield
+    Yield,
+    Please,
 }
 
 impl Keyword {
@@ -200,6 +203,7 @@ impl Keyword {
             "cont" => Keyword::Continue,
             "ret" => Keyword::Return,
             "yield" => Keyword::Yield,
+            "please" => Keyword::Please,
             _ => panic!("Text not a known keyword {text}")
         }
     }
@@ -239,7 +243,7 @@ impl Prim {
             "bool" => Prim::Bool,
 
             _ => {
-                dbginf.print(MessageType::Error, "Unknown type declaration", source);
+                println!("{}", dbginf.make_msg(&crate::msg::ERR70));
                 panic!()
             }
         }
@@ -269,14 +273,64 @@ impl Prim {
     }
 }
 
+pub struct DebugMsg {
+    pub code: i32,
+    pub typ: MessageType,
+    pub msg: &'static str,
+}
+
+pub struct DebugErr<'a> {
+    info: DebugInfo<'a>,
+    /// generic error description
+    msg: &'static DebugMsg,
+    /// extra message which is case specific
+    ext: Option<String>,
+}
+
+impl<'a> std::fmt::Display for DebugErr<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // write header as:
+        // `Error (56) some syntax error message in line 5:`
+        f.write_fmt(format_args!("{} ({}) {} in line {}: {}\n", 
+            self.msg.typ.to_colored(),
+            self.msg.code,
+            self.msg.msg.bold().bright_white(),
+            self.info.line,
+            self.ext.as_ref().unwrap_or(&String::new())
+        ));
+        // write additional information
+        f.write_fmt(format_args!("{}", self.info))
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub struct DebugInfo {
+pub struct DebugInfo<'a> {
     /// index in source string where the token begins in the current line
     start: usize,
     /// index in source string where the token ends  in the current line
     end: usize,
     /// line number where the line in which the token is begins
-    line: usize
+    line: usize,
+
+    source: &'a str
+}
+
+impl<'a> DebugInfo<'a> {
+    pub fn make_msg(&self, msg: &'static DebugMsg) -> DebugErr {
+        DebugErr {
+            info: self.clone(),
+            msg,
+            ext: None
+        }
+    }
+
+    pub fn make_msg_w_ext<T>(&self, msg: &'static DebugMsg, ext: T) -> DebugErr where T: Into<String> {
+        DebugErr {
+            info: self.clone(),
+            msg,
+            ext: Some(ext.into())
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -301,79 +355,97 @@ impl MessageType {
     }
 }
 
-impl DebugInfo {
-    /// print message in the form of:
-    /// ```text
-    /// Error (message) in line 7: token `code`
-    ///  somewhere in here:
-    ///   --> `code line`
-    ///        ^^^^
-    /// ```
-    pub fn print<'a>(&self, typ: MessageType, msg: &str, source: &'a str) {
-        println!("{} ({}) in line {}: token `{}`", typ.to_colored(), msg.bold().bright_white(), self.line, &source[self.start..self.end].bold());
-        println!(" somewhere in here:\n  --> `{}`", source.lines().nth(self.line).unwrap().trim().bold().bright_white());
+impl<'a> std::fmt::Display for DebugInfo<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(" somewhere in here:\n  --> `{}`\n", 
+            self.source.lines().nth(self.line).unwrap().trim().bold().bright_white())).unwrap();
         
-        for _ in 0..self.start + 6 {
-            print!(" ");
-        }
-        for _ in self.start..self.end {
-            print!("^");
-        }
-        println!("\n");
+        (0..self.start + 6).into_iter().for_each(|_| f.write_str(" ").unwrap());
+        (self.start..self.end).into_iter().for_each(|_| f.write_str("^").unwrap());
+
+        Ok(())
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 /// A token represents a basic building block for source code.
 /// They give a meaning to patterns of chars allowing to interpret them.
 pub enum Token<'a> {
     // base tokens that can simply be split to from raw source code
-    Word(&'a str, DebugInfo),
+    Word(&'a str, DebugInfo<'a>),
     /// Single symbol delemiter like ```(```,```}```
-    Delemiter(char, DebugInfo),
-    Operator(Operator, DebugInfo),
-    Number(&'a str, NumberClassHint, DebugInfo),
-    LineBreak(DebugInfo),
-    Func(&'a str, DebugInfo),
+    Delemiter(char, DebugInfo<'a>),
+    Operator(Operator, DebugInfo<'a>),
+    Number(&'a str, NumberClassHint, DebugInfo<'a>),
+    LineBreak(DebugInfo<'a>),
+    Func(&'a str, DebugInfo<'a>),
     /// Variable
-    Var(&'a str, DebugInfo),
+    Var(&'a str, DebugInfo<'a>),
     /// Function argument
-    Arg(&'a str, DebugInfo),
+    Arg(&'a str, DebugInfo<'a>),
     /// Variable assignment in the form of ```name = ```
-    Assign(&'a str, Option<Prim>, DebugInfo),
+    Assign(&'a str, Option<Prim>, DebugInfo<'a>),
     /// Variable type declaration in the form of ```name:type```
-    Decl(&'a str, Prim, DebugInfo),
-    Bool(bool, DebugInfo),
+    Decl(&'a str, Prim, DebugInfo<'a>),
+    Bool(bool, DebugInfo<'a>),
     /// Keywords like ```if```,```break```,```while```
-    Keyword(Keyword, DebugInfo),
-    Type(Prim, DebugInfo),
+    Keyword(Keyword, DebugInfo<'a>),
+    Type(Prim, DebugInfo<'a>),
     /// Semicolon
-    Terminator(DebugInfo)
+    Terminator(DebugInfo<'a>)
 }
 
-impl<'a> Token<'a> {
-    /// redirect for ```DebugInfo.print()```
-    pub fn print(&self, error: MessageType, arg: &str, source: &str) {
+impl<'a> std::fmt::Display for Token<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Token::Type(_, dbginf) => dbginf.print(error, arg, source),
-            Token::Word(_, dbginf) => dbginf.print(error, arg, source),
-            Token::Delemiter(_, dbginf) => dbginf.print(error, arg, source),
-            Token::Operator(_, dbginf) => dbginf.print(error, arg, source),
-            Token::Number(_, _, dbginf) => dbginf.print(error, arg, source),
-            Token::LineBreak(dbginf) => dbginf.print(error, arg, source),
-            Token::Func(_, dbginf) => dbginf.print(error, arg, source),
-            Token::Var(_, dbginf) => dbginf.print(error, arg, source),
-            Token::Arg(_, dbginf) => dbginf.print(error, arg, source),
-            Token::Assign(_, _, dbginf) => dbginf.print(error, arg, source),
-            Token::Decl(_, _, dbginf) => dbginf.print(error, arg, source),
-            Token::Bool(_, dbginf) => dbginf.print(error, arg, source),
-            Token::Keyword(_, dbginf) => dbginf.print(error, arg, source),
-            Token::Terminator(dbginf) => dbginf.print(error, arg, source),
+            Token::Type(t, _) => f.write_fmt(format_args!("__Type {:?}", t)),
+            Token::Word(w, _) => f.write_fmt(format_args!("__Word {:?}", w)),
+            Token::Delemiter(d, _) => f.write_fmt(format_args!("__Delemiter {:?}", d)),
+            Token::Operator(o, _) => f.write_fmt(format_args!("{:?}", o)),
+            Token::Number(n, hint, _) => f.write_fmt(format_args!("Load {:?} {}", hint, n)),
+            Token::LineBreak(_) => f.write_str("__Line-break"),
+            Token::Func(name, _) => f.write_fmt(format_args!("Call {}", name)),
+            Token::Var(v, _) => f.write_fmt(format_args!("Load Var {}", v)),
+            Token::Arg(a, _) => f.write_fmt(format_args!("Load Arg {}", a)),
+            Token::Assign(a, typ, _) => f.write_fmt(format_args!("Store {:?} {}", typ, a)),
+            Token::Decl(d, typ, _) => f.write_fmt(format_args!("__Decl {:?} as {}", typ, d)),
+            Token::Bool(b, _) => f.write_fmt(format_args!("Load Bool {}", b)),
+            Token::Keyword(k, _) => f.write_fmt(format_args!("{:?}", k)),
+            Token::Terminator(_) => f.write_str("__Terminator"),
         }
     }
 }
 
-const TOKEN_REGEX_SRC: &'static str = r"(#.*)|(unless|while|loop|break|cont|ret|yield)|(int|rat|bool)|(true|false|ye|no|maybe)|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))?\s*=|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>=])|([(){}])|(\n)|(;)";
+impl<'a> Token<'a> {
+    fn debug_info(&self) -> &DebugInfo {
+        match self {
+            Token::Type(_, d) => d,
+            Token::Word(_, d) => d,
+            Token::Delemiter(_, d) => d,
+            Token::Operator(_, d) => d,
+            Token::Number(_, _, d) => d,
+            Token::LineBreak(d) => d,
+            Token::Func(_, d) => d,
+            Token::Var(_, d) => d,
+            Token::Arg(_, d) => d,
+            Token::Assign(_, _, d) => d,
+            Token::Decl(_, _, d) => d,
+            Token::Bool(_, d) => d,
+            Token::Keyword(_, d) => d,
+            Token::Terminator(d) => d,
+        }
+    }
+
+    pub fn create_msg(&self, msg: &'static DebugMsg) -> DebugErr {
+        DebugErr { info: self.debug_info().clone(), msg, ext: None }
+    }
+
+    pub fn create_msg_w_ext<T>(&self, msg: &'static DebugMsg, ext: T) -> DebugErr where T: Into<String> {
+        DebugErr { info: self.debug_info().clone(), msg, ext: Some(ext.into()) }
+    }
+}
+
+const TOKEN_REGEX_SRC: &'static str = r"(#.*|--.*)|(unless|while|loop|break|cont|ret|yield|please)|(int|rat|bool)|(true|false|ye|no|maybe)|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))?\s*=|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>=])|([(){}])|(\n)|(;)";
 
 lazy_static::lazy_static! {
     static ref TOKEN_REGEX: regex::Regex = regex::Regex::new(TOKEN_REGEX_SRC).unwrap();
@@ -405,6 +477,7 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
             // if we have a match, save it as token
             if let Some(mat) = group {
                 let debug_info = DebugInfo {
+                    source,
                     start: mat.start() - line_start,
                     end: mat.end() - line_start,
                     line: line_count
@@ -440,7 +513,7 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
                     14 => Token::Terminator(debug_info),
 
                     _ => {
-                        debug_info.print(MessageType::Error, "Unable to identify sequence as token", source);
+                        println!("{}", debug_info.make_msg(crate::msg::ERR71));
                         panic!()
                     }
                 });

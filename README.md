@@ -18,7 +18,9 @@ It contains features such as:
     // code block
 }</code></pre></td></tr><tr><td>cont</td><td>Short form for “continue”. Jumps to the next iteration of a loop</td><td>&nbsp;</td></tr><tr><td>break</td><td>Exits a loop immediately</td><td>&nbsp;</td></tr><tr><td>yield</td><td>Returns from a function with an argument as return value</td><td><pre><code class="language-plaintext">foo() = int {
     yield 4
-}</code></pre></td></tr><tr><td>ret</td><td>Short form for “return”. This keyword takes no argument and returns from a function. NOTE: if ret is used in a function with a return type, an error occurs.</td><td>&nbsp;</td></tr></tbody></table>
+}</code></pre></td></tr><tr><td>ret</td><td>Short form for “return”. This keyword takes no argument and returns from a function. NOTE: if ret is used in a function with a return type, an error occurs.</td><td>&nbsp;</td></tr><tr><td>please</td><td>Decides on runtime wether a block should be executed or not.</td><td><pre><code class="language-plaintext">please {
+	// code
+}</code></pre></td></tr></tbody></table>
 
 ### Example code
 

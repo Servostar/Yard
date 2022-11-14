@@ -1,7 +1,15 @@
 use core::panic;
 use std::collections::{VecDeque};
-use crate::token::{Token};
+use crate::token::{Token, DebugErr};
 use crate::Prim;
+
+pub struct Diagnostics<'a> {
+    /// terminating factor on error
+    err: Option<DebugErr<'a>>,
+    /// additional warning and informations
+    /// all non critical
+    hints: Vec<DebugErr<'a>>
+}
 
 #[derive(Debug)]
 pub struct Func<'a> {
@@ -154,5 +162,16 @@ impl<'a> Scope<'a> {
             }
         }
         None
+    }
+
+    pub fn new<'b>() -> Scope<'b> {
+        Scope {
+            args: None,
+            vars: vec![],
+            func_return_typ: None,
+            expr_yield: false,
+            yields: false,
+            cond_count: 0
+        }
     }
 }

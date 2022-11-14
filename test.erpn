@@ -1,0 +1,34 @@
+pi:
+	Load Rat 5.1415926535
+foo:
+	Load Int 5
+	Load Int 6
+	Add
+	Store Some(Int) x
+	Load Arg x
+	Load Int 6
+	Lt
+	If
+		Load Bool true
+		Yield
+		Please
+		Load Arg x
+		Load Int 6
+		Lt
+		If
+			Load Bool true
+			Yield
+	Load Bool false
+	Yield
+main:
+	Load Int 4
+	Store None a
+	Load Rat 5.5
+	Store None b
+	Load Bool true
+	Store None c
+	Load Int 3
+	Load Rat 3.4
+	Call foo
+	Store None r
+	Load Int 0
