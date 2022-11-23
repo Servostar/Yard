@@ -1,12 +1,14 @@
+use colored::{ColoredString, Colorize};
 use std::collections::VecDeque;
-use colored::{Colorize, ColoredString};
 
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
 pub enum Operator {
+    // bitwise boolean operations
     Or,
     And,
     Xor,
 
+    // comparisons
     Eq,
     Lt,
     Gt,
@@ -14,19 +16,47 @@ pub enum Operator {
     LtEq,
     NotEq,
 
+    // arithmetic
     Add,
     Sub,
     Mul,
     Div,
 
-    Assign
+    Assign,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Assoc {
     Right,
-    Left
+    Left,
 }
+
+const ARITHMETIC_TYPES: &'static [(&[Prim], Prim)] = &[
+    (&[Prim::Int, Prim::Int], Prim::Int),
+    (&[Prim::Rat, Prim::Rat], Prim::Rat),
+    (&[Prim::Num(NumHint::Int), Prim::Int], Prim::Int),
+    (&[Prim::Num(NumHint::Int), Prim::Rat], Prim::Rat),
+    (&[Prim::Num(NumHint::Rat), Prim::Rat], Prim::Rat),
+    (&[Prim::Int, Prim::Num(NumHint::Int)], Prim::Int),
+    (&[Prim::Rat, Prim::Num(NumHint::Rat)], Prim::Rat),
+    (&[Prim::Rat, Prim::Num(NumHint::Int)], Prim::Rat),
+    (
+        &[Prim::Num(NumHint::Rat), Prim::Num(NumHint::Rat)],
+        Prim::Rat,
+    ),
+    (
+        &[Prim::Num(NumHint::Int), Prim::Num(NumHint::Rat)],
+        Prim::Rat,
+    ),
+    (
+        &[Prim::Num(NumHint::Rat), Prim::Num(NumHint::Int)],
+        Prim::Rat,
+    ),
+    (
+        &[Prim::Num(NumHint::Int), Prim::Num(NumHint::Int)],
+        Prim::Int,
+    ),
+];
 
 impl Operator {
     pub fn parse<'a>(str: &'a str) -> Self {
@@ -36,8 +66,8 @@ impl Operator {
             "^" => Operator::Xor,
 
             "==" => Operator::Eq,
-            "<"  => Operator::Lt,
-            ">"  => Operator::Gt,
+            "<" => Operator::Lt,
+            ">" => Operator::Gt,
             "<=" => Operator::LtEq,
             ">=" => Operator::GtEq,
             "!=" => Operator::NotEq,
@@ -48,7 +78,10 @@ impl Operator {
             "/" => Operator::Div,
             "=" => Operator::Assign,
 
-            _ => panic!("Unspecified operator")
+            _ => {
+                crate::message(MessageType::Critical, "Unknown operator");
+                panic!();
+            }
         };
     }
 
@@ -57,6 +90,7 @@ impl Operator {
             Operator::Eq => 2,
             Operator::Lt => 2,
             Operator::Gt => 2,
+            Operator::NotEq => 2,
             Operator::LtEq => 2,
             Operator::GtEq => 2,
 
@@ -66,113 +100,152 @@ impl Operator {
 
             Operator::Add => 3,
             Operator::Sub => 3,
-
             Operator::Mul => 4,
             Operator::Div => 4,
 
-            _ => 0
-        }
+            Operator::Assign => 0,
+        };
     }
 
     pub fn assoc(&self) -> Assoc {
         match self {
-            _ => Assoc::Right
+            _ => Assoc::Right,
         }
     }
 
-    fn present_types(operands: &[Prim], types: &[Prim], r#yield: Prim, dbginf: &DebugInfo, source: &str) -> Option<Prim> {
+    fn present_types(
+        operands: &[Prim],
+        types: &[Prim],
+        r#yield: Prim,
+        dbginf: &DebugInfo,
+        diagnostics: &mut crate::parser::data::Diagnostics,
+    ) -> Option<Prim> {
         if operands.len() < types.len() {
-            println!("{}", dbginf.make_msg_w_ext(crate::msg::ERR74, format!("required {} got {}", types.len() - operands.len(), operands.len())));
+            /*
+            println!(
+                "{}",
+                dbginf.make_msg_w_ext(
+                    crate::msg::ERR74,
+                    format!(
+                        "required {} got {}",
+                        types.len() - operands.len(),
+                        operands.len()
+                    )
+                )
+            );*/
             panic!()
         }
 
         for (x, typ) in types.iter().enumerate() {
             if typ != &operands[x] {
-                return None
+                return None;
             }
         }
         Some(r#yield)
     }
 
-    fn check_types(operands: &[Prim], types: &[(Vec<Prim>, Prim)], dbginf: &DebugInfo, source: &str) -> Option<Prim> {
+    fn check_types(
+        operands: &[Prim],
+        types: &[(&[Prim], Prim)],
+        dbginf: &DebugInfo,
+        diagnostics: &mut crate::parser::data::Diagnostics,
+    ) -> Option<Prim> {
         for combination in types.iter() {
-
-            if let Some(result) = Self::present_types(operands, &combination.0, combination.1, dbginf, source) {
+            if let Some(result) =
+                Self::present_types(operands, combination.0, combination.1, dbginf, diagnostics)
+            {
                 return Some(result);
             }
         }
         None
     }
 
-    pub fn operate(&self, operands: &mut Vec<Prim>, dbginf: &DebugInfo, source: &str) {
+    pub fn operate(
+        &self,
+        operands: &mut Vec<Prim>,
+        dbginf: &DebugInfo,
+        diagnostics: &mut crate::parser::data::Diagnostics,
+    ) {
         match self {
-            Operator::Add | Operator::Sub | Operator::Mul | Operator::Div=> {
-                let types_valid = Self::check_types(operands, &[
-               //   +------------------------------------------------------------------------------------+---------------------------------+
-               //   |  Parameter list of types                                                           | result type                     |
-               //   +------------------------------------------------------------------------------------+---------------------------------+
-                    (vec![Prim::Int,                               Prim::Int                             ], Prim::Int),
-                    (vec![Prim::Rat,                               Prim::Rat                             ], Prim::Rat),
-                    (vec![Prim::UntypedNum(NumberClassHint::Int),  Prim::Int                             ], Prim::Int),
-                    (vec![Prim::UntypedNum(NumberClassHint::Int),  Prim::Rat                             ], Prim::Rat),
-                    (vec![Prim::UntypedNum(NumberClassHint::Rat),  Prim::Rat                             ], Prim::Rat),
-                    (vec![Prim::Int,                               Prim::UntypedNum(NumberClassHint::Int)], Prim::Int),
-                    (vec![Prim::Rat,                               Prim::UntypedNum(NumberClassHint::Rat)], Prim::Rat),
-                    (vec![Prim::Rat,                               Prim::UntypedNum(NumberClassHint::Int)], Prim::Rat),
-                    (vec![Prim::UntypedNum(NumberClassHint::Rat),  Prim::UntypedNum(NumberClassHint::Rat)], Prim::Rat),
-                    (vec![Prim::UntypedNum(NumberClassHint::Int),  Prim::UntypedNum(NumberClassHint::Rat)], Prim::Rat),
-                    (vec![Prim::UntypedNum(NumberClassHint::Rat),  Prim::UntypedNum(NumberClassHint::Int)], Prim::Rat),
-                    (vec![Prim::UntypedNum(NumberClassHint::Int),  Prim::UntypedNum(NumberClassHint::Int)], Prim::Int)
-                ], dbginf, source);
+            Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => {
+                let types_valid =
+                    Self::check_types(operands, ARITHMETIC_TYPES, dbginf, diagnostics);
 
                 if let Some(result) = types_valid {
                     operands.pop();
                     operands.pop();
                     operands.push(result);
                 } else {
-                    println!("{}", dbginf.make_msg_w_ext(crate::msg::ERR73, "expected two numbers"));
+                    /*
+                    println!(
+                        "{}",
+                        dbginf.make_msg_w_ext(crate::msg::ERR73, "expected two numbers")
+                    );*/
                     panic!()
                 }
-            },
+            }
             Operator::And | Operator::Or | Operator::Xor => {
-                let types_valid = Self::check_types(operands, &[
-                    (vec![Prim::Bool, Prim::Bool ], Prim::Bool),
-                ], dbginf, source);
+                let types_valid = Self::check_types(
+                    operands,
+                    &[(&[Prim::Bool, Prim::Bool], Prim::Bool)],
+                    dbginf,
+                    diagnostics,
+                );
 
                 if let Some(result) = types_valid {
                     operands.pop();
                     operands.pop();
                     operands.push(result);
                 } else {
-                    println!("{}", dbginf.make_msg_w_ext(crate::msg::ERR73, "expected two booleans"));
+                    /*
+                    println!(
+                        "{}",
+                        dbginf.make_msg_w_ext(crate::msg::ERR73, "expected two booleans")
+                    );*/
                     panic!()
                 }
-            },
-            Operator::Eq | Operator::NotEq | Operator::Lt | Operator::Gt | Operator::GtEq | Operator::LtEq   => {
-                let types_valid = Self::check_types(operands, &[
-               //   +------------------------------------------------------------------------------------+---------------------------------+
-               //   |  Parameter list of types                                                           | result type                     |
-               //   +------------------------------------------------------------------------------------+---------------------------------+
-                    (vec![Prim::Int,                              Prim::Int                             ], Prim::Bool ),
-                    (vec![Prim::Rat,                              Prim::Rat                             ], Prim::Bool ),
-                    (vec![Prim::UntypedNum(NumberClassHint::Int), Prim::Int                             ], Prim::Bool ),
-                    (vec![Prim::UntypedNum(NumberClassHint::Rat), Prim::Rat                             ], Prim::Bool ),
-                    (vec![Prim::Int,                              Prim::UntypedNum(NumberClassHint::Int)], Prim::Bool ),
-                    (vec![Prim::Rat,                              Prim::UntypedNum(NumberClassHint::Rat)], Prim::Bool ),
-                    (vec![Prim::UntypedNum(NumberClassHint::Rat), Prim::UntypedNum(NumberClassHint::Rat)], Prim::Bool ),
-                    (vec![Prim::UntypedNum(NumberClassHint::Int), Prim::UntypedNum(NumberClassHint::Int)], Prim::Bool )
-                ], dbginf, source);
+            }
+            Operator::Eq
+            | Operator::NotEq
+            | Operator::Lt
+            | Operator::Gt
+            | Operator::GtEq
+            | Operator::LtEq => {
+                let types_valid = Self::check_types(
+                    operands,
+                    &[
+                        (&[Prim::Int, Prim::Int], Prim::Bool),
+                        (&[Prim::Rat, Prim::Rat], Prim::Bool),
+                        (&[Prim::Num(NumHint::Int), Prim::Int], Prim::Bool),
+                        (&[Prim::Num(NumHint::Rat), Prim::Rat], Prim::Bool),
+                        (&[Prim::Int, Prim::Num(NumHint::Int)], Prim::Bool),
+                        (&[Prim::Rat, Prim::Num(NumHint::Rat)], Prim::Bool),
+                        (
+                            &[Prim::Num(NumHint::Rat), Prim::Num(NumHint::Rat)],
+                            Prim::Bool,
+                        ),
+                        (
+                            &[Prim::Num(NumHint::Int), Prim::Num(NumHint::Int)],
+                            Prim::Bool,
+                        ),
+                    ],
+                    dbginf,
+                    diagnostics,
+                );
 
                 if let Some(result) = types_valid {
-
                     operands.pop();
                     operands.pop();
                     operands.push(result);
                 } else {
-                    println!("{}", dbginf.make_msg_w_ext(crate::msg::ERR73, "expected two numbers"));
+                    /*
+                    println!(
+                        "{}",
+                        dbginf.make_msg_w_ext(crate::msg::ERR73, "expected two numbers")
+                    );*/
                     panic!()
                 }
-            },
+            }
             _ => {
                 panic!("Unknown operator");
             }
@@ -204,25 +277,30 @@ impl Keyword {
             "ret" => Keyword::Return,
             "yield" => Keyword::Yield,
             "please" => Keyword::Please,
-            _ => panic!("Text not a known keyword {text}")
-        }
+            _ => {
+                crate::message(
+                    MessageType::Critical,
+                    format!("not a known keyword: {}", text),
+                );
+                panic!()
+            }
+        };
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub enum NumberClassHint {
+pub enum NumHint {
     Int,
-    Rat
+    Rat,
 }
 
-impl NumberClassHint {
-    
-    pub fn from(str: &str) -> NumberClassHint {
+impl NumHint {
+    pub fn from(str: &str) -> NumHint {
         if str.parse::<i32>().is_err() {
-            return NumberClassHint::Rat;
+            return NumHint::Rat;
         }
 
-        NumberClassHint::Int
+        NumHint::Int
     }
 }
 
@@ -232,44 +310,51 @@ pub enum Prim {
     Int,
     Rat,
     Bool,
-    UntypedNum(NumberClassHint)
+    Num(NumHint),
 }
 
 impl Prim {
-    fn from<'a>(text: &'a str, dbginf: &DebugInfo, source: &str) -> Prim {
+    fn from<'a>(text: &'a str, dbginf: &DebugInfo) -> Prim {
         return match text {
             "int" => Prim::Int,
             "rat" => Prim::Rat,
             "bool" => Prim::Bool,
-
             _ => {
-                println!("{}", dbginf.make_msg(&crate::msg::ERR70));
+                //println!("{}", dbginf.make_msg(&crate::msg::ERR70));
                 panic!()
             }
-        }
+        };
     }
 
     pub fn is_equal(&self, value: Prim) -> bool {
         return match self {
             Prim::Bool => *self == value,
-            Prim::Rat => return match value {
-                Prim::UntypedNum(NumberClassHint::Int) => true,
-                Prim::UntypedNum(NumberClassHint::Rat) => true,
-                _ => *self == value,
-            },
-            Prim::Int => return match value {
-                Prim::UntypedNum(NumberClassHint::Int) => true,
-                _ => *self == value,
-            },
-            Prim::UntypedNum(NumberClassHint::Rat) => return match value {
-                Prim::Rat | Prim::Int => true,
-                _ => *self == value,
-            }, 
-            Prim::UntypedNum(NumberClassHint::Int) => return match value {
-                Prim::Int => true,
-                _ => *self == value,
-            }, 
-        }
+            Prim::Rat => {
+                return match value {
+                    Prim::Num(NumHint::Int) => true,
+                    Prim::Num(NumHint::Rat) => true,
+                    _ => *self == value,
+                }
+            }
+            Prim::Int => {
+                return match value {
+                    Prim::Num(NumHint::Int) => true,
+                    _ => *self == value,
+                }
+            }
+            Prim::Num(NumHint::Rat) => {
+                return match value {
+                    Prim::Rat | Prim::Int => true,
+                    _ => *self == value,
+                }
+            }
+            Prim::Num(NumHint::Int) => {
+                return match value {
+                    Prim::Int => true,
+                    _ => *self == value,
+                }
+            }
+        };
     }
 }
 
@@ -279,90 +364,89 @@ pub struct DebugMsg {
     pub msg: &'static str,
 }
 
-pub struct DebugErr<'a> {
-    info: DebugInfo<'a>,
+pub struct DebugNotice<'a> {
+    pub info: DebugInfo,
     /// generic error description
-    msg: &'static DebugMsg,
+    pub msg: &'static DebugMsg,
     /// extra message which is case specific
-    ext: Option<String>,
+    pub ext: String,
+    pub source: &'a str,
 }
 
-impl<'a> std::fmt::Display for DebugErr<'a> {
+impl<'a> std::fmt::Display for DebugNotice<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // write header as:
         // `Error (56) some syntax error message in line 5:`
-        f.write_fmt(format_args!("{} ({}) {} in line {}: {}\n", 
+        f.write_fmt(format_args!(
+            "{} ({}) {} in line {}: {}\n",
             self.msg.typ.to_colored(),
             self.msg.code,
             self.msg.msg.bold().bright_white(),
             self.info.line,
-            self.ext.as_ref().unwrap_or(&String::new())
+            self.ext
         ));
         // write additional information
-        f.write_fmt(format_args!("{}", self.info))
+        f.write_fmt(format_args!(
+            " somewhere in here:\n  --> `{}`\n",
+            self.source
+                .lines()
+                .nth(self.info.line)
+                .unwrap()
+                .trim()
+                .bold()
+                .bright_white()
+        ))
+        .unwrap();
+
+        (0..self.info.start + 6)
+            .into_iter()
+            .for_each(|_| f.write_str(" ").unwrap());
+        (self.info.start..self.info.end)
+            .into_iter()
+            .for_each(|_| f.write_str("^").unwrap());
+
+        Ok(())
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub struct DebugInfo<'a> {
+pub struct DebugInfo {
     /// index in source string where the token begins in the current line
-    start: usize,
+    pub start: usize,
     /// index in source string where the token ends  in the current line
-    end: usize,
+    pub end: usize,
     /// line number where the line in which the token is begins
-    line: usize,
-
-    source: &'a str
-}
-
-impl<'a> DebugInfo<'a> {
-    pub fn make_msg(&self, msg: &'static DebugMsg) -> DebugErr {
-        DebugErr {
-            info: self.clone(),
-            msg,
-            ext: None
-        }
-    }
-
-    pub fn make_msg_w_ext<T>(&self, msg: &'static DebugMsg, ext: T) -> DebugErr where T: Into<String> {
-        DebugErr {
-            info: self.clone(),
-            msg,
-            ext: Some(ext.into())
-        }
-    }
+    pub line: usize,
 }
 
 #[derive(Debug)]
 pub enum MessageType {
+    /// For internal compiler critical error
+    Critical,
+    /// compile errors that won't allow for further compilation
     Error,
     Warning,
-    Info
+    Info,
 }
 
 impl MessageType {
     /// return a colorized string representation:
     /// - Error (in red)
     /// - Warning (in yellow)
-    /// - Info (in blue) 
+    /// - Info (in blue)
     pub fn to_colored(&self) -> ColoredString {
         let raw = format!("{:#?}", self);
         return match self {
+            MessageType::Critical => raw.on_red().bold(),
             MessageType::Error => raw.red().bold(),
             MessageType::Warning => raw.yellow().bold(),
-            MessageType::Info => raw.blue().bold()
+            MessageType::Info => raw.blue().bold(),
         };
     }
 }
 
-impl<'a> std::fmt::Display for DebugInfo<'a> {
+impl std::fmt::Display for DebugInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!(" somewhere in here:\n  --> `{}`\n", 
-            self.source.lines().nth(self.line).unwrap().trim().bold().bright_white())).unwrap();
-        
-        (0..self.start + 6).into_iter().for_each(|_| f.write_str(" ").unwrap());
-        (self.start..self.end).into_iter().for_each(|_| f.write_str("^").unwrap());
-
         Ok(())
     }
 }
@@ -372,27 +456,27 @@ impl<'a> std::fmt::Display for DebugInfo<'a> {
 /// They give a meaning to patterns of chars allowing to interpret them.
 pub enum Token<'a> {
     // base tokens that can simply be split to from raw source code
-    Word(&'a str, DebugInfo<'a>),
+    Word(&'a str, DebugInfo),
     /// Single symbol delemiter like ```(```,```}```
-    Delemiter(char, DebugInfo<'a>),
-    Operator(Operator, DebugInfo<'a>),
-    Number(&'a str, NumberClassHint, DebugInfo<'a>),
-    LineBreak(DebugInfo<'a>),
-    Func(&'a str, DebugInfo<'a>),
+    Delemiter(char, DebugInfo),
+    Operator(Operator, DebugInfo),
+    Number(&'a str, NumHint, DebugInfo),
+    LineBreak(DebugInfo),
+    Func(&'a str, DebugInfo),
     /// Variable
-    Var(&'a str, DebugInfo<'a>),
+    Var(&'a str, DebugInfo),
     /// Function argument
-    Arg(&'a str, DebugInfo<'a>),
+    Arg(&'a str, DebugInfo),
     /// Variable assignment in the form of ```name = ```
-    Assign(&'a str, Option<Prim>, DebugInfo<'a>),
+    Assign(&'a str, Option<Prim>, DebugInfo),
     /// Variable type declaration in the form of ```name:type```
-    Decl(&'a str, Prim, DebugInfo<'a>),
-    Bool(bool, DebugInfo<'a>),
+    Decl(&'a str, Prim, DebugInfo),
+    Bool(bool, DebugInfo),
     /// Keywords like ```if```,```break```,```while```
-    Keyword(Keyword, DebugInfo<'a>),
-    Type(Prim, DebugInfo<'a>),
+    Keyword(Keyword, DebugInfo),
+    Type(Prim, DebugInfo),
     /// Semicolon
-    Terminator(DebugInfo<'a>)
+    Terminator(DebugInfo),
 }
 
 impl<'a> std::fmt::Display for Token<'a> {
@@ -416,8 +500,8 @@ impl<'a> std::fmt::Display for Token<'a> {
     }
 }
 
-impl<'a> Token<'a> {
-    fn debug_info(&self) -> &DebugInfo {
+impl<'a> Into<DebugInfo> for Token<'a> {
+    fn into(self) -> DebugInfo {
         match self {
             Token::Type(_, d) => d,
             Token::Word(_, d) => d,
@@ -435,14 +519,6 @@ impl<'a> Token<'a> {
             Token::Terminator(d) => d,
         }
     }
-
-    pub fn create_msg(&self, msg: &'static DebugMsg) -> DebugErr {
-        DebugErr { info: self.debug_info().clone(), msg, ext: None }
-    }
-
-    pub fn create_msg_w_ext<T>(&self, msg: &'static DebugMsg, ext: T) -> DebugErr where T: Into<String> {
-        DebugErr { info: self.debug_info().clone(), msg, ext: Some(ext.into()) }
-    }
 }
 
 const TOKEN_REGEX_SRC: &'static str = r"(#.*|--.*)|(unless|while|loop|break|cont|ret|yield|please)|(int|rat|bool)|(true|false|ye|no|maybe)|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))?\s*=|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>=])|([(){}])|(\n)|(;)";
@@ -452,18 +528,18 @@ lazy_static::lazy_static! {
 }
 
 /// creates a vector of tokens from the specified str.
-pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
+pub fn tokenize(source: &str) -> VecDeque<Token> {
     let mut tokens = VecDeque::new();
 
     let mut line_count = 0;
     let mut line_start = 0;
 
-    for cap in TOKEN_REGEX.captures_iter(source) {
+    for cap in TOKEN_REGEX.captures_iter(source.as_ref()) {
         let mut enumerator = cap.iter().enumerate();
         loop {
             let next = enumerator.next();
             if next.is_none() {
-                break
+                break;
             }
 
             let (i, group) = next.unwrap();
@@ -477,43 +553,41 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
             // if we have a match, save it as token
             if let Some(mat) = group {
                 let debug_info = DebugInfo {
-                    source,
                     start: mat.start() - line_start,
                     end: mat.end() - line_start,
-                    line: line_count
+                    line: line_count,
                 };
 
                 tokens.push_back(match i {
                     2 => Token::Keyword(Keyword::parse(mat.as_str()), debug_info),
-                    3 => {
-                        Token::Type(Prim::from(mat.as_str(), &debug_info, source), debug_info)
-                    },
+                    3 => Token::Type(Prim::from(mat.as_str(), &debug_info), debug_info),
                     4 => Token::Bool(parse_bool(mat.as_str()), debug_info),
                     5 => {
                         let var_type = if let Some(mat) = enumerator.next().unwrap().1 {
-                            Some(Prim::from(mat.as_str(), &debug_info, source))
+                            Some(Prim::from(mat.as_str(), &debug_info))
                         } else {
                             None
                         };
                         Token::Assign(mat.as_str(), var_type, debug_info)
-                    },
+                    }
                     7 => {
-                        let var_type = Prim::from(enumerator.next().unwrap().1.unwrap().as_str(), &debug_info, source);
+                        let var_type =
+                            Prim::from(enumerator.next().unwrap().1.unwrap().as_str(), &debug_info);
                         Token::Decl(mat.as_str(), var_type, debug_info)
-                    },
+                    }
                     9 => Token::Word(mat.as_str(), debug_info),
-                    10 => Token::Number(mat.as_str(), NumberClassHint::from(mat.as_str()), debug_info),
+                    10 => Token::Number(mat.as_str(), NumHint::from(mat.as_str()), debug_info),
                     11 => Token::Operator(Operator::parse(mat.as_str()), debug_info),
                     12 => Token::Delemiter(mat.as_str().chars().nth(0).unwrap(), debug_info),
                     13 => {
                         line_count += 1;
                         line_start = mat.start();
                         Token::LineBreak(debug_info)
-                    },
+                    }
                     14 => Token::Terminator(debug_info),
 
                     _ => {
-                        println!("{}", debug_info.make_msg(crate::msg::ERR71));
+                        //println!("{}", debug_info.make_msg(crate::msg::ERR71));
                         panic!()
                     }
                 });
@@ -528,8 +602,8 @@ pub fn tokenize<'a>(source: &'a str) -> VecDeque<Token<'a>> {
 fn parse_bool(text: &str) -> bool {
     return match text {
         "true" | "ye" => true,
-        "false" |"no" => false,
+        "false" | "no" => false,
         "maybe" => rand::random(),
-        _ => panic!("Not a recognized boolean {text}")
-    }
+        _ => panic!("Not a recognized boolean {text}"),
+    };
 }

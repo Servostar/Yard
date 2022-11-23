@@ -1,4 +1,3 @@
-
 // tokenizer
 mod token;
 // ro parse a queue of tokens into functions with expressions
@@ -7,18 +6,19 @@ mod parser;
 // designed for a virtual stack machiene
 mod inter;
 
-use token::*;
-use parser::*;
 use colored::Colorize;
+use parser::*;
+use token::*;
 
-pub fn message(typ: MessageType, msg: String) {
-    println!("{}: {}", typ.to_colored(), msg.bold().bright_white());
+pub fn message<S>(typ: MessageType, msg: S)
+where
+    S: Into<String>,
+{
+    println!("{}: {}", typ.to_colored(), msg.into().bold().bright_white());
 }
 
 fn main() {
-
-    let source =
-r"
+    let source = r"
 # this is pi
 pi = rat 5.1415926535
 
@@ -50,5 +50,7 @@ main() = int {
 }
 ";
 
-    parse(&mut tokenize(source), source);
+    let diagnostics = parse(&mut tokenize(source), source);
+
+    println!("{}", diagnostics);
 }

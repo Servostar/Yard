@@ -1,14 +1,74 @@
-use core::panic;
-use std::collections::{VecDeque};
-use crate::token::{Token, DebugErr};
+use crate::token::{DebugInfo, DebugNotice, Token};
 use crate::Prim;
+use core::panic;
+use std::collections::VecDeque;
 
 pub struct Diagnostics<'a> {
     /// terminating factor on error
-    err: Option<DebugErr<'a>>,
+    err: Option<DebugNotice<'a>>,
     /// additional warning and informations
     /// all non critical
-    hints: Vec<DebugErr<'a>>
+    hints: Vec<DebugNotice<'a>>,
+    /// source string
+    source: &'a str,
+}
+
+impl<'a> Diagnostics<'a> {
+    pub fn new(source: &'a str) -> Self {
+        Self {
+            err: None,
+            hints: vec![],
+            source,
+        }
+    }
+
+    pub fn set_err<T, S>(&mut self, source: &S, message: &'static crate::token::DebugMsg, ext: T)
+    where
+        T: Into<String>,
+        S: Into<DebugInfo> + Clone,
+    {
+        if self.err.is_some() {
+            panic!("Error already set");
+        }
+
+        let info: DebugInfo = source.clone().into();
+
+        self.err = Some(DebugNotice {
+            info,
+            msg: message,
+            ext: ext.into(),
+            source: self.source,
+        });
+    }
+
+    pub fn hint<T, S>(&mut self, source: &S, message: &'static crate::token::DebugMsg, ext: T)
+    where
+        T: Into<String>,
+        S: Into<DebugInfo> + Clone,
+    {
+        let info: DebugInfo = source.clone().into();
+
+        self.hints.push(DebugNotice {
+            info,
+            msg: message,
+            ext: ext.into(),
+            source: self.source,
+        });
+    }
+}
+
+impl<'a> std::fmt::Display for Diagnostics<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for hint in self.hints.iter() {
+            f.write_fmt(format_args!("{}\n\n", hint)).unwrap();
+        }
+
+        if let Some(err) = self.err.as_ref() {
+            f.write_fmt(format_args!("{}\n\n", err)).unwrap();
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -37,7 +97,7 @@ pub struct Declr<'a> {
     /// if the function returns a single value
     pub results: bool,
     /// type of result
-    pub result_typ: Option<Prim>
+    pub result_typ: Option<Prim>,
 }
 
 impl<'a> Declr<'a> {
@@ -46,7 +106,7 @@ impl<'a> Declr<'a> {
             name: None,
             args: None,
             results: false,
-            result_typ: None
+            result_typ: None,
         }
     }
 }
@@ -85,7 +145,7 @@ pub enum Expr<'a> {
     /// group of more expressions
     Block(Block<'a>),
     /// single term
-    Term(VecDeque<Token<'a>>)
+    Term(VecDeque<Token<'a>>),
 }
 
 pub struct Scope<'a> {
@@ -97,7 +157,7 @@ pub struct Scope<'a> {
     pub yields: bool,
     /// if the last expr yielded a result
     pub expr_yield: bool,
-    pub cond_count: usize
+    pub cond_count: usize,
 }
 
 impl<'a> Scope<'a> {
@@ -112,7 +172,7 @@ impl<'a> Scope<'a> {
     pub fn decl_var(&mut self, name: String, typ: Option<Prim>) {
         self.vars.last_mut().unwrap().push((name, typ))
     }
-    
+
     pub fn is_arg(&self, name: &'a str) -> bool {
         if let Some(args) = self.args {
             for arg in args.iter() {
@@ -124,7 +184,7 @@ impl<'a> Scope<'a> {
         false
     }
 
-    pub fn get_arg_type(&self, name: &'a str) -> Prim  {
+    pub fn get_arg_type(&self, name: &'a str) -> Prim {
         if let Some(args) = self.args {
             for arg in args.iter() {
                 if arg.0 == name {
@@ -135,7 +195,7 @@ impl<'a> Scope<'a> {
         panic!("No argument of name: {name}");
     }
 
-    pub fn get_var_type(&self, name: &'a str) -> Prim  {
+    pub fn get_var_type(&self, name: &'a str) -> Prim {
         // create an owned version of the string
         let owned = &name.to_owned();
 
@@ -152,7 +212,7 @@ impl<'a> Scope<'a> {
     pub fn is_var(&self, name: &'a str) -> Option<Prim> {
         // create an owned version of the string
         let owned = &name.to_owned();
-        
+
         // search
         for vars in self.vars.iter() {
             for var in vars.iter() {
@@ -171,7 +231,7 @@ impl<'a> Scope<'a> {
             func_return_typ: None,
             expr_yield: false,
             yields: false,
-            cond_count: 0
+            cond_count: 0,
         }
     }
 }
