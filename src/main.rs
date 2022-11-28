@@ -5,10 +5,13 @@ mod parser;
 // translate a tree of functions and expressions to pseudo assembly
 // designed for a virtual stack machiene
 mod inter;
+mod conf;
 
 use colored::Colorize;
 use parser::*;
 use token::*;
+
+use crate::parser::data::Diagnostics;
 
 pub fn message<S>(typ: MessageType, msg: S)
 where
@@ -19,7 +22,7 @@ where
 
 fn main() {
     let source = r"
-# this is pi
+# surely this is pi
 pi = rat 5.1415926535
 
 foo(x:int, y:rat) = bool {
@@ -38,19 +41,26 @@ foo(x:int, y:rat) = bool {
     }
     
     -- comment
-    yield false
+   yield true 
 }
 
 main() = int {
+    
     a = 4
     b = 5.5
     c = true
-    r = foo(3, 3.4)
+    r = foo(3, ffalsee)
     0
 }
 ";
 
-    let diagnostics = parse(&mut tokenize(source), source);
+    let mut diagnostics = Diagnostics::new(source);
+
+    let settings = conf::parse_args(&mut diagnostics);
+
+    if let Ok(mut tokens) = tokenize(source, &mut diagnostics) {
+        parse(&mut tokens, &mut diagnostics, &settings);
+    }
 
     println!("{}", diagnostics);
 }

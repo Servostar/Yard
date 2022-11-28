@@ -1,7 +1,17 @@
-use crate::token::{DebugInfo, DebugNotice, Token};
+use crate::token::{DebugInfo, DebugNotice, Token, MessageType};
 use crate::Prim;
 use core::panic;
 use std::collections::VecDeque;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum LogLvl {
+    /// print everything
+    Info,
+    /// print only errors and warning
+    Warn,
+    /// print only errors
+    Err,
+}
 
 pub struct Diagnostics<'a> {
     /// terminating factor on error
@@ -11,6 +21,8 @@ pub struct Diagnostics<'a> {
     hints: Vec<DebugNotice<'a>>,
     /// source string
     source: &'a str,
+    /// flags
+    loglvl: LogLvl,
 }
 
 impl<'a> Diagnostics<'a> {
@@ -19,7 +31,12 @@ impl<'a> Diagnostics<'a> {
             err: None,
             hints: vec![],
             source,
+            loglvl: LogLvl::Info
         }
+    }
+
+    pub fn set_loglvl(&mut self, lvl: LogLvl) {
+        self.loglvl = lvl;
     }
 
     pub fn set_err<T, S>(&mut self, source: &S, message: &'static crate::token::DebugMsg, ext: T)
@@ -60,6 +77,16 @@ impl<'a> Diagnostics<'a> {
 impl<'a> std::fmt::Display for Diagnostics<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for hint in self.hints.iter() {
+            match hint.msg.typ {
+                MessageType::Info => if self.loglvl != LogLvl::Info {
+                    continue;
+                },
+                MessageType::Warning => if self.loglvl == LogLvl::Err {
+                    continue;
+                },
+                _ => (),
+            }
+
             f.write_fmt(format_args!("{}\n\n", hint)).unwrap();
         }
 
@@ -98,6 +125,9 @@ pub struct Declr<'a> {
     pub results: bool,
     /// type of result
     pub result_typ: Option<Prim>,
+
+    /// debug info
+    pub info: Option<DebugInfo>
 }
 
 impl<'a> Declr<'a> {
@@ -107,6 +137,7 @@ impl<'a> Declr<'a> {
             args: None,
             results: false,
             result_typ: None,
+            info: None,
         }
     }
 }
@@ -132,6 +163,10 @@ impl<'a> std::fmt::Display for Declr<'a> {
 
         if self.results {
             f.write_str(" =")?;
+        }
+
+        if let Some(typ) = self.result_typ {
+            f.write_fmt(format_args!(" {:?}", typ))?;
         }
 
         f.write_str(" {}")

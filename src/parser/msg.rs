@@ -1,7 +1,7 @@
 use crate::token::DebugMsg;
 use crate::token::MessageType::Error;
 use crate::token::MessageType::Info;
-use crate::token::MessageType::Warning;
+//use crate::token::MessageType::Warning;
 
 pub const ERR10: &DebugMsg = &DebugMsg {
     typ: Error,
@@ -73,6 +73,12 @@ pub const ERR23: &DebugMsg = &DebugMsg {
     code: 23,
     msg: "token must be declaration",
 };
+pub const ERR24: &DebugMsg = &DebugMsg {
+    typ: Error,
+    code: 24,
+    msg: "function already has return type",
+};
+
 
 pub const ERR40: &DebugMsg = &DebugMsg {
     typ: Error,
@@ -183,11 +189,7 @@ pub const ERR71: &DebugMsg = &DebugMsg {
     code: 71,
     msg: "Unable to identify characters as token",
 };
-pub const ERR72: &DebugMsg = &DebugMsg {
-    typ: Error,
-    code: 72,
-    msg: "Unknown operator",
-};
+
 pub const ERR73: &DebugMsg = &DebugMsg {
     typ: Error,
     code: 73,

@@ -1,6 +1,8 @@
 use colored::{ColoredString, Colorize};
 use std::collections::VecDeque;
 
+use crate::parser::data::Diagnostics;
+
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
 pub enum Operator {
     // bitwise boolean operations
@@ -117,31 +119,26 @@ impl Operator {
         operands: &[Prim],
         types: &[Prim],
         r#yield: Prim,
-        dbginf: &DebugInfo,
+        info: &DebugInfo,
         diagnostics: &mut crate::parser::data::Diagnostics,
-    ) -> Option<Prim> {
+    ) -> Result<Option<Prim>, ()> {
+
         if operands.len() < types.len() {
-            /*
-            println!(
-                "{}",
-                dbginf.make_msg_w_ext(
-                    crate::msg::ERR74,
-                    format!(
+            diagnostics.set_err(info, crate::msg::ERR74, format!(
                         "required {} got {}",
                         types.len() - operands.len(),
                         operands.len()
                     )
-                )
-            );*/
-            panic!()
+                );
+            return Err(());
         }
 
         for (x, typ) in types.iter().enumerate() {
             if typ != &operands[x] {
-                return None;
+                return Ok(None);
             }
         }
-        Some(r#yield)
+        Ok(Some(r#yield))
     }
 
     fn check_types(
@@ -149,60 +146,54 @@ impl Operator {
         types: &[(&[Prim], Prim)],
         dbginf: &DebugInfo,
         diagnostics: &mut crate::parser::data::Diagnostics,
-    ) -> Option<Prim> {
+    ) -> Result<Option<Prim>,()> {
         for combination in types.iter() {
             if let Some(result) =
-                Self::present_types(operands, combination.0, combination.1, dbginf, diagnostics)
+                Self::present_types(operands, combination.0, combination.1, dbginf, diagnostics)?
             {
-                return Some(result);
+                return Ok(Some(result));
             }
         }
-        None
+        Ok(None)
     }
 
     pub fn operate(
         &self,
         operands: &mut Vec<Prim>,
-        dbginf: &DebugInfo,
+        info: &DebugInfo,
         diagnostics: &mut crate::parser::data::Diagnostics,
-    ) {
+    ) -> Result<(),()> {
         match self {
             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => {
                 let types_valid =
-                    Self::check_types(operands, ARITHMETIC_TYPES, dbginf, diagnostics);
+                    Self::check_types(operands, ARITHMETIC_TYPES, info, diagnostics)?;
 
                 if let Some(result) = types_valid {
                     operands.pop();
                     operands.pop();
                     operands.push(result);
+                    return Ok(());
                 } else {
-                    /*
-                    println!(
-                        "{}",
-                        dbginf.make_msg_w_ext(crate::msg::ERR73, "expected two numbers")
-                    );*/
-                    panic!()
+                    diagnostics.set_err(info, crate::msg::ERR73, "expected two numbers");
+                    return Err(());
                 }
             }
             Operator::And | Operator::Or | Operator::Xor => {
                 let types_valid = Self::check_types(
                     operands,
                     &[(&[Prim::Bool, Prim::Bool], Prim::Bool)],
-                    dbginf,
+                    info,
                     diagnostics,
-                );
+                )?;
 
                 if let Some(result) = types_valid {
                     operands.pop();
                     operands.pop();
                     operands.push(result);
+                    return Ok(())
                 } else {
-                    /*
-                    println!(
-                        "{}",
-                        dbginf.make_msg_w_ext(crate::msg::ERR73, "expected two booleans")
-                    );*/
-                    panic!()
+                    diagnostics.set_err(info, crate::msg::ERR73, "expected two booleans");
+                    return Err(());
                 }
             }
             Operator::Eq
@@ -229,21 +220,18 @@ impl Operator {
                             Prim::Bool,
                         ),
                     ],
-                    dbginf,
+                    info,
                     diagnostics,
-                );
+                )?;
 
                 if let Some(result) = types_valid {
                     operands.pop();
                     operands.pop();
                     operands.push(result);
+                    return Ok(());
                 } else {
-                    /*
-                    println!(
-                        "{}",
-                        dbginf.make_msg_w_ext(crate::msg::ERR73, "expected two numbers")
-                    );*/
-                    panic!()
+                    diagnostics.set_err(info, crate::msg::ERR73, "expected either two booleans or two numbers");
+                    return Err(());
                 }
             }
             _ => {
@@ -255,7 +243,7 @@ impl Operator {
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Keyword {
-    If,
+    Unless,
     While,
     /// while(true) loop
     Loop,
@@ -269,7 +257,7 @@ pub enum Keyword {
 impl Keyword {
     pub fn parse<'a>(text: &'a str) -> Keyword {
         return match text {
-            "unless" => Keyword::If,
+            "unless" => Keyword::Unless,
             "while" => Keyword::While,
             "loop" => Keyword::Loop,
             "break" => Keyword::Break,
@@ -314,14 +302,14 @@ pub enum Prim {
 }
 
 impl Prim {
-    fn from<'a>(text: &'a str, dbginf: &DebugInfo) -> Prim {
+    fn from<'a>(text: &'a str, info: &DebugInfo, diagnostics: &mut Diagnostics) -> Result<Prim, ()> {
         return match text {
-            "int" => Prim::Int,
-            "rat" => Prim::Rat,
-            "bool" => Prim::Bool,
+            "int" => Ok(Prim::Int),
+            "rat" => Ok(Prim::Rat),
+            "bool" => Ok(Prim::Bool),
             _ => {
-                //println!("{}", dbginf.make_msg(&crate::msg::ERR70));
-                panic!()
+                diagnostics.set_err(info, crate::msg::ERR70, format!("token is not a type: {}", text));
+                return Err(())
             }
         };
     }
@@ -358,6 +346,18 @@ impl Prim {
     }
 }
 
+impl std::fmt::Display for Prim {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Prim::Int => f.write_str("Int")?,
+            Prim::Rat => f.write_str("Rat")?,
+            Prim::Bool => f.write_str("Bool")?,
+            Prim::Num(_) => f.write_fmt(format_args!("{:?}", self))?
+        }
+        Ok(())
+    }
+}
+
 pub struct DebugMsg {
     pub code: i32,
     pub typ: MessageType,
@@ -384,7 +384,7 @@ impl<'a> std::fmt::Display for DebugNotice<'a> {
             self.msg.msg.bold().bright_white(),
             self.info.line,
             self.ext
-        ));
+        ))?;
         // write additional information
         f.write_fmt(format_args!(
             " somewhere in here:\n  --> `{}`\n",
@@ -446,7 +446,7 @@ impl MessageType {
 }
 
 impl std::fmt::Display for DebugInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
 }
@@ -491,7 +491,7 @@ impl<'a> std::fmt::Display for Token<'a> {
             Token::Func(name, _) => f.write_fmt(format_args!("Call {}", name)),
             Token::Var(v, _) => f.write_fmt(format_args!("Load Var {}", v)),
             Token::Arg(a, _) => f.write_fmt(format_args!("Load Arg {}", a)),
-            Token::Assign(a, typ, _) => f.write_fmt(format_args!("Store {:?} {}", typ, a)),
+            Token::Assign(a, typ, _) => f.write_fmt(format_args!("Store {} {}", typ.unwrap(), a)),
             Token::Decl(d, typ, _) => f.write_fmt(format_args!("__Decl {:?} as {}", typ, d)),
             Token::Bool(b, _) => f.write_fmt(format_args!("Load Bool {}", b)),
             Token::Keyword(k, _) => f.write_fmt(format_args!("{:?}", k)),
@@ -528,7 +528,7 @@ lazy_static::lazy_static! {
 }
 
 /// creates a vector of tokens from the specified str.
-pub fn tokenize(source: &str) -> VecDeque<Token> {
+pub fn tokenize<'a>(source: &'a str, diagnostics: &mut Diagnostics) -> Result<VecDeque<Token<'a>>, ()> {
     let mut tokens = VecDeque::new();
 
     let mut line_count = 0;
@@ -560,11 +560,11 @@ pub fn tokenize(source: &str) -> VecDeque<Token> {
 
                 tokens.push_back(match i {
                     2 => Token::Keyword(Keyword::parse(mat.as_str()), debug_info),
-                    3 => Token::Type(Prim::from(mat.as_str(), &debug_info), debug_info),
+                    3 => Token::Type(Prim::from(mat.as_str(), &debug_info, diagnostics)?, debug_info),
                     4 => Token::Bool(parse_bool(mat.as_str()), debug_info),
                     5 => {
                         let var_type = if let Some(mat) = enumerator.next().unwrap().1 {
-                            Some(Prim::from(mat.as_str(), &debug_info))
+                            Some(Prim::from(mat.as_str(), &debug_info, diagnostics)?)
                         } else {
                             None
                         };
@@ -572,7 +572,7 @@ pub fn tokenize(source: &str) -> VecDeque<Token> {
                     }
                     7 => {
                         let var_type =
-                            Prim::from(enumerator.next().unwrap().1.unwrap().as_str(), &debug_info);
+                            Prim::from(enumerator.next().unwrap().1.unwrap().as_str(), &debug_info, diagnostics)?;
                         Token::Decl(mat.as_str(), var_type, debug_info)
                     }
                     9 => Token::Word(mat.as_str(), debug_info),
@@ -587,8 +587,8 @@ pub fn tokenize(source: &str) -> VecDeque<Token> {
                     14 => Token::Terminator(debug_info),
 
                     _ => {
-                        //println!("{}", debug_info.make_msg(crate::msg::ERR71));
-                        panic!()
+                        diagnostics.set_err(&debug_info, crate::msg::ERR71, format!("token: {}", mat.as_str()));
+                        return Err(());
                     }
                 });
                 break;
@@ -596,7 +596,7 @@ pub fn tokenize(source: &str) -> VecDeque<Token> {
         }
     }
 
-    return tokens;
+    return Ok(tokens);
 }
 
 fn parse_bool(text: &str) -> bool {
@@ -604,6 +604,9 @@ fn parse_bool(text: &str) -> bool {
         "true" | "ye" => true,
         "false" | "no" => false,
         "maybe" => rand::random(),
-        _ => panic!("Not a recognized boolean {text}"),
+        _ => {
+            crate::message(MessageType::Critical, format!("token: {}", text));
+            panic!();
+        },
     };
 }

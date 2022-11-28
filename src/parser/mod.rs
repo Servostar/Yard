@@ -1,4 +1,4 @@
-use crate::token::{Assoc, DebugInfo, Keyword, Operator, Prim, Token};
+use crate::{token::{Assoc, DebugInfo, Keyword, Operator, Prim, Token}, conf::Settings};
 use core::panic;
 use std::{collections::VecDeque, vec};
 
@@ -12,6 +12,7 @@ fn discover_functions<'a>(
     tokens: &mut VecDeque<crate::Token<'a>>,
     diagnostics: &mut data::Diagnostics,
 ) -> Result<(Vec<Func<'a>>, Vec<Declr<'a>>), ()> {
+
     let mut funcs = Vec::new();
     let mut declrs = Vec::new();
 
@@ -27,6 +28,7 @@ fn discover_functions<'a>(
 
     macro_rules! finish_func {
         ($token:expr) => {
+            // check if the function is already declared
             if declrs.contains(&declr) {
                 diagnostics.set_err(
                     $token,
@@ -36,13 +38,17 @@ fn discover_functions<'a>(
                 return Err(());
             }
 
+            // check if the function returns sth but no return value is given
             if declr.results && declr.result_typ.is_none() {
                 diagnostics.set_err($token, crate::msg::ERR11, format!("for function {declr}"));
                 return Err(());
             }
 
+            // store new function and its declaration
             funcs.push(func);
             declrs.push(declr);
+
+            // create new empty function
             declr = Declr::new();
             func = Func::new();
             single_line = false;
@@ -53,22 +59,25 @@ fn discover_functions<'a>(
         // function body detection
         // has highest priority
         match &top {
-            Token::Delemiter(char, dbginf) => match char {
+            Token::Delemiter(char, _) => match char {
+                // open body
                 '{' => {
                     brace_cnt += 1;
 
                     // we have an found open function body
                     if brace_cnt == 1 {
+                        // check if we have a name for our function
                         if declr.name.is_none() {
                             diagnostics.set_err(&top, crate::msg::ERR12, "");
                             return Err(());
                         }
 
+                        // check if the parameter list was closed 
                         if paren_cnt > 0 {
                             diagnostics.set_err(&top, crate::msg::ERR13, "");
                             return Err(());
                         }
-
+                        
                         single_line = false;
                         func.raw = Some(VecDeque::new());
                         continue;
@@ -92,8 +101,10 @@ fn discover_functions<'a>(
                 _ => (),
             },
 
-            Token::Type(typ, dbginf) => {
+            Token::Type(typ, _) => {
+                // check if we already have a result type
                 if declr.result_typ.is_none() {
+                    // then check if we even need to return sth.
                     if declr.results {
                         declr.result_typ = Some(*typ);
                         continue;
@@ -101,10 +112,13 @@ fn discover_functions<'a>(
                         diagnostics.set_err(&top, crate::msg::ERR16, "");
                         return Err(());
                     }
+                } else {
+                    diagnostics.set_err(&top, crate::msg::ERR24, "");
+                    return Err(());
                 }
             }
 
-            Token::LineBreak(dbginf) => {
+            Token::LineBreak(_) => {
                 if single_line {
                     finish_func!(&top);
                     continue;
@@ -120,12 +134,15 @@ fn discover_functions<'a>(
 
         if func.raw.is_none() {
             match &top {
-                Token::Operator(op, dbginf) => match op {
+                Token::Operator(op, _) => match op {
                     Operator::Assign => {
+                        // check if we already have an assign
                         if declr.results {
                             diagnostics.set_err(&top, crate::msg::ERR17, "");
                             return Err(());
                         }
+                        // check if we even have a function name
+                        // which must always be first
                         if declr.name.is_none() {
                             diagnostics.set_err(&top, crate::msg::ERR12, "");
                             return Err(());
@@ -138,26 +155,38 @@ fn discover_functions<'a>(
                     _ => (),
                 },
 
-                Token::Word(text, dbginf) => {
+                Token::Word(text, info) => {
+                    // check if we have a function name
                     if declr.name.is_some() {
+                        // we have a function name check if we have no open argument list.
+                        // if so this word is missplaced
                         if declr.args.is_none() {
                             diagnostics.set_err(&top, crate::msg::ERR18, "");
                             return Err(());
                         }
+
+                    // function body is open and we have no function name
                     } else if brace_cnt > 0 {
                         diagnostics.set_err(&top, crate::msg::ERR13, "");
                         return Err(());
+
+                    // this must be a valid function name
                     } else {
                         declr.name = Some(text);
+                        declr.info = Some(info.to_owned());
                         continue;
                     }
                 }
 
-                Token::Assign(name, _, dbginf) => {
+                Token::Assign(name, _, info) => {
+                    // check if we already marked a return type
+                    // we dont want a double assignment
                     if declr.results {
                         diagnostics.set_err(&top, crate::msg::ERR17, "");
                         return Err(());
                     }
+                    // check if we already set function name
+                    // then we dont want to reassign
                     if declr.name.is_some() {
                         diagnostics.set_err(&top, crate::msg::ERR18, "");
                         return Err(());
@@ -165,16 +194,22 @@ fn discover_functions<'a>(
 
                     func.raw = Some(VecDeque::new());
                     declr.name = Some(name);
+                    declr.info = Some(info.to_owned());
                     declr.results = true;
                     single_line = true;
                     continue;
                 }
 
-                Token::Delemiter(char, dbginf) => match char {
+                Token::Delemiter(char, _) => match char {
                     '(' => {
+                        // check for no existing function body
+                        // if we have none we can open an parameter list
                         if func.raw.is_none() {
                             paren_cnt += 1;
+                            // check if we have one open parenthsis
                             if paren_cnt == 1 {
+                                // we have some arguments then we have a double parameter list
+                                // dont want that
                                 if declr.args.is_some() {
                                     diagnostics.set_err(&top, crate::msg::ERR19, "");
                                     return Err(());
@@ -198,9 +233,14 @@ fn discover_functions<'a>(
         }
 
         if let Some(body) = &mut func.raw {
+            // if we have an open function body
+            // drop all token in there till it closes
             body.push_back(top);
             continue;
+
+        // check for open parameter list
         } else if let Some(args) = &mut declr.args {
+            // the parameter list is closed
             if paren_cnt == 0 {
                 diagnostics.set_err(&top, crate::msg::ERR20, "");
                 return Err(());
@@ -208,7 +248,9 @@ fn discover_functions<'a>(
 
             match &top {
                 Token::Decl(name, typ, _dbginf) => args.push((name, *typ)),
-                Token::Word(_, dbginf) => {
+
+                // as parameter we only accept declarations
+                Token::Word(_, _) => {
                     diagnostics.set_err(&top, crate::msg::ERR21, "");
                     return Err(());
                 }
@@ -231,6 +273,7 @@ fn discover_functions<'a>(
     }
 
     if let Some(raw) = func.raw {
+        // still some raw unused tokens left over
         if let Some(front) = raw.front() {
             diagnostics.set_err(front, crate::msg::ERR15, "");
             return Err(());
@@ -247,7 +290,8 @@ fn discover_exprs<'a>(
     functions: &mut Vec<Func<'a>>,
     _: &Vec<Declr<'a>>,
     diagnostics: &mut data::Diagnostics,
-) {
+) -> Result<(),()> {
+
     for func in functions.iter_mut() {
         let mut blocks = vec![Block::new()];
 
@@ -255,27 +299,27 @@ fn discover_exprs<'a>(
 
         while let Some(top) = func.raw.as_mut().unwrap().pop_front() {
             match &top {
-                Token::LineBreak(dbginf) | Token::Terminator(dbginf) => {
+                Token::LineBreak(_) | Token::Terminator(_) => {
                     if !expr.is_empty() {
                         if let Some(blocks) = blocks.last_mut() {
                             blocks.push_back(Expr::Term(expr))
                         } else {
                             diagnostics.set_err(&top, crate::msg::ERR41, "");
-                            return;
+                            return Err(());
                         }
                         expr = VecDeque::new();
                         continue;
                     }
                 }
-                Token::Delemiter(char, dbginf) => match char {
+                Token::Delemiter(char, _) => match char {
                     '{' => {
-                        blocks
-                            .last_mut()
-                            .unwrap_or_else(|| {
-                                diagnostics.set_err(&top, crate::msg::ERR41, "");
-                                panic!()
-                            })
-                            .push_back(Expr::Term(expr));
+
+                        if let Some(block) = blocks.last_mut() {
+                            block.push_back(Expr::Term(expr));
+                        } else {
+                            diagnostics.set_err(&top, crate::msg::ERR41, "");
+                            return Err(());
+                        }
                         expr = VecDeque::new();
                         blocks.push(Block::new());
                         continue;
@@ -283,17 +327,22 @@ fn discover_exprs<'a>(
                     '}' => {
                         // pop topmost block of the stack, storing it in the next lower block
                         if let Some(block) = blocks.pop() {
-                            blocks
-                                .last_mut()
-                                .unwrap_or_else(|| {
-                                    //println!("{}", dbginf.make_msg(crate::msg::ERR41));
-                                    panic!()
-                                })
-                                .push_back(Expr::Block(block));
+                            if let Some(dst) = blocks.last_mut() {
+                                dst.push_back(Expr::Block(block));
+                            } else {
+                                diagnostics.set_err(&top, crate::msg::ERR41, "");
+                                return Err(());
+                            }
                         } else {
-                            //println!("{}", dbginf.make_msg(crate::msg::ERR40));
-                            panic!()
+                            diagnostics.set_err(&top, crate::msg::ERR40, "");
+                            return Err(());
                         }
+    
+                        if blocks.is_empty() {
+                            diagnostics.set_err(&top, crate::msg::ERR41, "");
+                            return Err(());
+                        }
+
                         continue;
                     }
                     _ => (),
@@ -305,21 +354,19 @@ fn discover_exprs<'a>(
         }
 
         if !expr.is_empty() {
-            blocks
-                .last_mut()
-                .unwrap_or_else(|| {
-                    diagnostics.set_err(expr.back().unwrap(), crate::msg::ERR40, "");
-                    panic!()
-                })
-                .push_back(Expr::Term(expr));
+            if let Some(block) = blocks.last_mut() {
+                block.push_back(Expr::Term(expr));
+            } else {
+                diagnostics.set_err(expr.back().unwrap(), crate::msg::ERR40, "");
+                return Err(());
+            }
         }
 
         if let Some(block) = blocks.pop() {
             func.expr = Some(Expr::Block(block));
-        } else {
-            panic!("curly brace missmatch")
         }
     }
+    Ok(())
 }
 
 fn check_var_typ(
@@ -328,7 +375,7 @@ fn check_var_typ(
     info: &crate::token::DebugInfo,
     diagnostics: &mut data::Diagnostics,
 ) -> Result<(), ()> {
-    if let Some(value) = operands.pop() {
+    if let Some(mut value) = operands.pop() {
         if !operands.is_empty() {
             diagnostics.set_err(info, crate::msg::ERR50, "");
             return Err(());
@@ -345,6 +392,17 @@ fn check_var_typ(
             }
         } else {
             diagnostics.hint(info, crate::msg::INF51, format!("gessed type: {:?}", value));
+
+            // resolve to concrete typ
+            // i.e all Prim::Num(hint) will convert to their hints.
+            value = match value {
+                Prim::Num(hint) => match hint {
+                    crate::token::NumHint::Int => Prim::Int,
+                    crate::token::NumHint::Rat => Prim::Rat,
+                }
+                _ => value
+            };
+
             *typ = Some(value);
         }
     } else {
@@ -362,7 +420,7 @@ fn process_keyword(
     diagnostics: &mut data::Diagnostics,
 ) -> Result<(), ()> {
     match keyword {
-        Keyword::If | Keyword::While => {
+        Keyword::Unless | Keyword::While => {
             if operands.len() != 1 {
                 diagnostics.set_err(
                     info,
@@ -431,70 +489,78 @@ fn collapse_operation(
     operands: &mut Vec<Prim>,
     diagnostics: &mut data::Diagnostics,
 ) -> Result<(), ()> {
+
     match operation {
-        Token::Operator(op, dbginf) => op.operate(operands, &dbginf, diagnostics),
-        Token::Assign(name, mut typ, dbginf) => {
-            check_var_typ(&mut typ, operands, &dbginf, diagnostics)?;
-            scope.decl_var((*name).to_owned(), typ);
+        Token::Operator(op, dbginf) => op.operate(operands, &dbginf, diagnostics)?,
+        Token::Assign(name, ref mut typ, dbginf) => {
+            check_var_typ(typ, operands, &dbginf, diagnostics)?;
+            scope.decl_var((*name).to_owned(), typ.clone());
         }
-        Token::Func(name, dbginf) => call_func(name, declrs, scope, operands, &dbginf, diagnostics),
+        Token::Func(name, dbginf) => {
+            call_func(name, declrs, operands, &dbginf, diagnostics)?;
+        },
         Token::Keyword(keyword, dbginf) => {
-            process_keyword(dbginf, *keyword, scope, operands, diagnostics)?
+            process_keyword(dbginf, *keyword, scope, operands, diagnostics)?;
         }
         _ => (),
     }
-    Ok(())
+
+    return Ok(());
 }
 
 fn call_func(
     name: &str,
     declrs: &Vec<Declr>,
-    _: &mut Scope,
     operands: &mut Vec<Prim>,
-    dbginf: &crate::token::DebugInfo,
+    info: &DebugInfo,
     diagnostics: &mut data::Diagnostics,
-) {
+) -> Result<(), ()> {
+    
+    // find the function in our function declarations by its name
     for declr in declrs {
-        if declr.name.is_some() && declr.name.unwrap() == name {
-            if let Some(args) = &declr.args {
-                if args.len() > operands.len() {
-                    /*
-                    println!(
-                        "{}",
-                        dbginf.make_msg_w_ext(
-                            crate::msg::ERR60,
-                            format!("expected {:?} got {:?}", args.len(), operands.len())
-                        )
-                    );*/
-                    panic!()
-                }
-
-                for (x, arg) in args.iter().enumerate() {
-                    let operand = operands.first().unwrap();
-
-                    if !operand.is_equal(arg.1) {
-                        /*
-                        println!(
-                            "{}",
-                            dbginf.make_msg_w_ext(
-                                crate::msg::ERR61,
-                                format!("expected {:?} got {:?}", arg, operand)
-                            )
-                        );*/
-                        panic!()
-                    }
-
-                    operands.remove(0);
-                }
+        // check if declaration name matches the function name
+        if let Some(declr_name) = declr.name {
+            if declr_name != name {
+                continue;
             }
-
-            if let Some(typ) = declr.result_typ {
-                operands.push(typ);
-            }
-
-            break;
+        } else {
+            // some critical compiler error
+            crate::message(crate::token::MessageType::Critical, "Missing function name in declaration");
+            panic!();
         }
+
+        if let Some(args) = &declr.args {
+            // check if we have enough parameter on the stack
+            // note that the stack may contain more than just the functions
+            // // parameters
+            if args.len() > operands.len() {
+                diagnostics.set_err(info, crate::msg::ERR60, format!("expected {:?} got {:?}", args.len(), operands.len()));
+                return Err(());
+            }
+                
+            // check parameter types
+            for (x, arg) in args.iter().enumerate() {
+                // parameter are in reverse order on the stack
+                // so they are placed at the bottom
+                let operand = operands.first().unwrap();
+                // check types
+                if !operand.is_equal(arg.1) {
+                    diagnostics.set_err(info, crate::msg::ERR61, format!("expected {:?} got {:?} as {}th argument", arg, operand, x));
+                    return Err(());
+                }
+               operands.remove(0);
+            }
+        }
+
+        // if the function returns sth. we will add
+        // its type to the stack
+        // assuming the execution was successfull
+        if let Some(typ) = declr.result_typ {
+            operands.push(typ);
+        }
+        break;
     }
+    Ok(())
 }
 
 /// parse a single term using a modified shunting yard
@@ -503,28 +569,36 @@ fn parse_term<'a>(
     declrs: &Vec<Declr<'a>>,
     scope: &mut Scope,
     diagnostics: &mut data::Diagnostics,
-) {
+) -> Result<(),()> {
+
     let mut op_stack = vec![];
     let mut output = VecDeque::with_capacity(term.len());
     let mut value_stack = vec![];
 
     'outer: while let Some(token) = term.pop_front() {
         match &token {
+            // resolve word to either a function, parameter or variable
             Token::Word(text, dbginf) => {
+                // test for function
                 if is_func(declrs, text) {
                     op_stack.push(Token::Func(text, *dbginf));
                     continue;
+
+                // test for function parameter
                 } else if scope.is_arg(text) {
                     value_stack.push(scope.get_arg_type(text));
                     output.push_back(Token::Arg(text, *dbginf));
                     continue;
+
+                // test for variable in scope
                 } else if scope.is_var(text).is_some() {
                     value_stack.push(scope.get_var_type(text));
                     output.push_back(Token::Var(text, *dbginf));
                     continue;
                 }
-                //println!("{}", dbginf.make_msg(crate::msg::ERR62));
-                panic!()
+                // word was not reolved to anything
+                diagnostics.set_err(&token, crate::msg::ERR62, "");
+                return Err(());
             }
             Token::Bool(_, _) => {
                 output.push_back(token);
@@ -539,7 +613,7 @@ fn parse_term<'a>(
             }
             Token::Keyword(_, _) => op_stack.push(token),
 
-            Token::Delemiter(char, dbginf) => match char {
+            Token::Delemiter(char, _) => match char {
                 '(' => op_stack.push(token),
                 ')' => {
                     while let Some(mut token) = op_stack.pop() {
@@ -556,7 +630,7 @@ fn parse_term<'a>(
                                                     scope,
                                                     &mut value_stack,
                                                     diagnostics,
-                                                );
+                                                )?;
                                                 output.push_back(token);
                                             }
                                             _ => (),
@@ -572,17 +646,17 @@ fn parse_term<'a>(
                                     scope,
                                     &mut value_stack,
                                     diagnostics,
-                                );
+                                )?;
                                 output.push_back(token)
                             }
                         }
                     }
-                    //println!("{}", dbginf.make_msg(crate::msg::ERR64));
-                    panic!();
+                    diagnostics.set_err(&token, crate::msg::ERR64, "");
+                    return Err(());
                 }
                 _ => {
-                    //println!("{}", dbginf.make_msg(crate::msg::ERR65));
-                    panic!()
+                    diagnostics.set_err(&token, crate::msg::ERR65, "");
+                    return Err(());
                 }
             },
 
@@ -600,7 +674,7 @@ fn parse_term<'a>(
                                     scope,
                                     &mut value_stack,
                                     diagnostics,
-                                );
+                                )?;
                                 output.push_back(op_stack.pop().unwrap());
                                 continue;
                             }
@@ -617,13 +691,14 @@ fn parse_term<'a>(
 
     while let Some(mut token) = op_stack.pop() {
         match &token {
-            Token::Delemiter(char, dbginf) => {
+            Token::Delemiter(char, _) => {
                 if *char == '(' {
-                    //println!("{}", dbginf.make_msg(crate::msg::ERR63));
+                    diagnostics.set_err(&token, crate::msg::ERR63, "");
+                    return Err(());
                 }
             }
             _ => {
-                collapse_operation(&mut token, declrs, scope, &mut value_stack, diagnostics);
+                collapse_operation(&mut token, declrs, scope, &mut value_stack, diagnostics)?;
                 output.push_back(token)
             }
         }
@@ -631,7 +706,7 @@ fn parse_term<'a>(
 
     if value_stack.len() > 1 {
         diagnostics.set_err(&output[0], crate::msg::ERR50, "");
-        return;
+        return Err(());
     }
 
     scope.expr_yield = value_stack.len() == 1;
@@ -652,6 +727,8 @@ fn parse_term<'a>(
     }
 
     term.append(&mut output);
+
+    Ok(())
 }
 
 fn is_func(declrs: &[Declr], text: &str) -> bool {
@@ -668,24 +745,25 @@ fn parse_block<'a>(
     declrs: &Vec<Declr<'a>>,
     scope: &mut Scope,
     diagnostics: &mut data::Diagnostics,
-) {
+) -> Result<(), ()> {
     scope.cond_count += 1;
     scope.alloc_scope();
     for expr in block.iter_mut() {
         match expr {
-            Expr::Block(block) => parse_block(block, declrs, scope, diagnostics),
-            Expr::Term(term) => parse_term(term, declrs, scope, diagnostics),
+            Expr::Block(block) => parse_block(block, declrs, scope, diagnostics)?,
+            Expr::Term(term) => parse_term(term, declrs, scope, diagnostics)?,
         }
     }
     scope.pop_scope();
     scope.cond_count -= 1;
+    Ok(())
 }
 
 fn parse_exprs<'a>(
     funcs: &mut Vec<Func<'a>>,
     declrs: &Vec<Declr<'a>>,
     diagnostics: &mut data::Diagnostics,
-) {
+) -> Result<(),()> {
     let mut scope = Scope::new();
 
     for (x, func) in funcs.iter_mut().enumerate() {
@@ -696,31 +774,35 @@ fn parse_exprs<'a>(
                 scope.yields = false;
                 scope.cond_count = 0;
 
-                parse_block(block, declrs, &mut scope, diagnostics);
+                parse_block(block, declrs, &mut scope, diagnostics)?;
 
                 if scope.func_return_typ.is_some() && !scope.yields && !scope.expr_yield {
-                    //token.create_msg_w_ext(crate::msg::ERR56, format!("at function {}", declrs[x]));
-                    panic!();
+                    diagnostics.set_err(declrs[x].info.as_ref().unwrap(), crate::msg::ERR56, format!("for function: {}", declrs[x]));
+                    return Err(());
                 }
             }
-            _ => panic!("Fatal-Compilier-Error: function must have a block"),
+            _ => {
+                crate::message(crate::token::MessageType::Critical, "Fatal-Compilier-Error: function must have a block");
+                panic!();
+            },
         }
     }
+    Ok(())
 }
 
 /// reorder and organize a listing of instructions to a RPN based format:
 /// any program is made out of functions.
 /// A function has a name followed by an optional parameter list, followed by an optional equal sign and block.
-pub fn parse<'a>(tokens: &mut VecDeque<crate::Token<'a>>, source: &'a str) -> Diagnostics<'a> {
-    let mut dias = data::Diagnostics::new(source);
+pub fn parse<'a>(tokens: &mut VecDeque<crate::Token<'a>>, diagnostics: &mut data::Diagnostics, settings: &Settings) {
 
-    if let Ok((mut funcs, declrs)) = discover_functions(tokens, &mut dias) {
-        // make all of this shit return a mutable diagnostics struct.
-        discover_exprs(&mut funcs, &declrs, &mut dias);
-        parse_exprs(&mut funcs, &declrs, &mut dias);
+    if let Ok((mut funcs, declrs)) = discover_functions(tokens, diagnostics) {
+        if let Ok(()) = discover_exprs(&mut funcs, &declrs, diagnostics) {
+            if let Ok(()) = parse_exprs(&mut funcs, &declrs, diagnostics) {
 
-        crate::inter::convert_to_erpn(&mut funcs, &declrs);
+                if settings.gen_erpn() {
+                    crate::inter::convert_to_erpn(&mut funcs, &declrs);
+                }
+            }
+        }
     }
-
-    dias
 }
