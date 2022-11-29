@@ -2,6 +2,8 @@ use crate::token::{DebugInfo, DebugNotice, Token, MessageType};
 use crate::Prim;
 use core::panic;
 use std::collections::VecDeque;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LogLvl {
@@ -127,7 +129,9 @@ pub struct Declr<'a> {
     pub result_typ: Option<Prim>,
 
     /// debug info
-    pub info: Option<DebugInfo>
+    pub info: Option<DebugInfo>,
+
+    uuid: u64
 }
 
 impl<'a> Declr<'a> {
@@ -138,7 +142,38 @@ impl<'a> Declr<'a> {
             results: false,
             result_typ: None,
             info: None,
+            uuid: 0,
         }
+    }
+
+    pub fn get_arg_ord(&self, name: &str) -> usize {
+        if let Some(args) = self.args.as_ref() {
+            for (x, arg) in args.iter().enumerate() {
+                if arg.0 == name {
+                    return x;
+                }
+            }
+        }
+        return 0;
+    }
+
+    pub fn gen_uuid(&mut self) {
+        let mut hasher = DefaultHasher::default();
+
+        self.name.unwrap().hash(&mut hasher);
+
+        if let Some(args) = self.args.as_ref() {
+            for arg in args.iter() {
+                arg.0.hash(&mut hasher);
+                arg.1.hash(&mut hasher);
+            }
+        }
+
+        self.uuid = hasher.finish()
+    }
+
+    pub fn uuid(&self) -> u64 {
+        self.uuid
     }
 }
 

@@ -6,6 +6,7 @@ mod parser;
 // designed for a virtual stack machiene
 mod inter;
 mod conf;
+mod vmrt;
 
 use colored::Colorize;
 use parser::*;
@@ -47,10 +48,13 @@ foo(x:int, y:rat) = bool {
 main() = int {
     
     a = 4
-    b = 5.5
+    b = pi
     c = true
-    r = foo(3, ffalsee)
-    0
+    r = foo(3, 4.0)
+    h = foo(3,5.0)
+    b:int = 4
+
+    9
 }
 ";
 
@@ -59,7 +63,9 @@ main() = int {
     let settings = conf::parse_args(&mut diagnostics);
 
     if let Ok(mut tokens) = tokenize(source, &mut diagnostics) {
-        parse(&mut tokens, &mut diagnostics, &settings);
+        if let Ok((fs, ds)) = parse(&mut tokens, &mut diagnostics, &settings) {
+            vmrt::compile(&fs, &ds);
+        }
     }
 
     println!("{}", diagnostics);

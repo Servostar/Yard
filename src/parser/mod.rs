@@ -44,6 +44,8 @@ fn discover_functions<'a>(
                 return Err(());
             }
 
+            declr.gen_uuid();
+
             // store new function and its declaration
             funcs.push(func);
             declrs.push(declr);
@@ -134,7 +136,7 @@ fn discover_functions<'a>(
 
         if func.raw.is_none() {
             match &top {
-                Token::Operator(op, _) => match op {
+                Token::Operator(op, _, _) => match op {
                     Operator::Assign => {
                         // check if we already have an assign
                         if declr.results {
@@ -458,7 +460,7 @@ fn process_keyword(
 
             if let Some(operand) = operands.pop() {
                 if let Some(typ) = scope.func_return_typ {
-                    if typ != operand {
+                    if !typ.is_equal(operand) {
                         diagnostics.set_err(
                             info,
                             crate::msg::ERR59,
@@ -491,7 +493,7 @@ fn collapse_operation(
 ) -> Result<(), ()> {
 
     match operation {
-        Token::Operator(op, dbginf) => op.operate(operands, &dbginf, diagnostics)?,
+        Token::Operator(op, _, dbginf) => op.operate(operands, &dbginf, diagnostics)?,
         Token::Assign(name, ref mut typ, dbginf) => {
             check_var_typ(typ, operands, &dbginf, diagnostics)?;
             scope.decl_var((*name).to_owned(), typ.clone());
@@ -660,11 +662,11 @@ fn parse_term<'a>(
                 }
             },
 
-            Token::Operator(op, _) => {
+            Token::Operator(op, _, _) => {
                 let prec0 = op.prec();
                 while let Some(mut top) = op_stack.last_mut() {
                     match &top {
-                        Token::Operator(op1, _) => {
+                        Token::Operator(op1, _, _) => {
                             let prec1 = op1.prec();
 
                             if prec1 > prec0 || prec0 == prec1 && op.assoc() == Assoc::Left {
@@ -711,8 +713,10 @@ fn parse_term<'a>(
 
     scope.expr_yield = value_stack.len() == 1;
     if scope.expr_yield {
-        let yielded = value_stack.pop().unwrap();
-        if !yielded.is_equal(scope.func_return_typ.unwrap()) {
+        let yielded = value_stack.pop().unwrap(); 
+
+        if !yielded.is_equal(scope.func_return_typ.unwrap()) { 
+
             diagnostics.set_err(
                 &output[0],
                 crate::msg::ERR59,
@@ -722,7 +726,7 @@ fn parse_term<'a>(
                     yielded
                 ),
             );
-            panic!();
+            return Err(());
         }
     }
 
@@ -793,16 +797,16 @@ fn parse_exprs<'a>(
 /// reorder and organize a listing of instructions to a RPN based format:
 /// any program is made out of functions.
 /// A function has a name followed by an optional parameter list, followed by an optional equal sign and block.
-pub fn parse<'a>(tokens: &mut VecDeque<crate::Token<'a>>, diagnostics: &mut data::Diagnostics, settings: &Settings) {
+pub fn parse<'a>(tokens: &mut VecDeque<crate::Token<'a>>, diagnostics: &mut data::Diagnostics, settings: &Settings) -> Result<(Vec<Func<'a>>, Vec<Declr<'a>>), ()> {
 
-    if let Ok((mut funcs, declrs)) = discover_functions(tokens, diagnostics) {
-        if let Ok(()) = discover_exprs(&mut funcs, &declrs, diagnostics) {
-            if let Ok(()) = parse_exprs(&mut funcs, &declrs, diagnostics) {
+    let (mut funcs, declrs) = discover_functions(tokens, diagnostics)?;
 
-                if settings.gen_erpn() {
-                    crate::inter::convert_to_erpn(&mut funcs, &declrs);
-                }
-            }
-        }
+    discover_exprs(&mut funcs, &declrs, diagnostics)?;
+    parse_exprs(&mut funcs, &declrs, diagnostics)?;
+
+    if settings.gen_erpn() {
+        crate::inter::convert_to_erpn(&mut funcs, &declrs);
     }
+
+    return Ok((funcs, declrs));   
 }

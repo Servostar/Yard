@@ -23,12 +23,18 @@ foo:
 main:
 	Load Int 4
 	Store Int a
-	Load Rat 5.5
+	Call pi
 	Store Rat b
 	Load Bool true
 	Store Bool c
 	Load Int 3
-	Load Rat 3.4
+	Load Rat 4.0
 	Call foo
 	Store Bool r
-	Load Int 0
+	Load Int 3
+	Load Rat 5.0
+	Call foo
+	Store Bool h
+	Load Int 4
+	Store Int b
+	Load Int 9

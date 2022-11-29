@@ -163,6 +163,7 @@ impl Operator {
         info: &DebugInfo,
         diagnostics: &mut crate::parser::data::Diagnostics,
     ) -> Result<(),()> {
+        // TODO: insert type hint
         match self {
             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => {
                 let types_valid =
@@ -459,7 +460,7 @@ pub enum Token<'a> {
     Word(&'a str, DebugInfo),
     /// Single symbol delemiter like ```(```,```}```
     Delemiter(char, DebugInfo),
-    Operator(Operator, DebugInfo),
+    Operator(Operator, Option<Prim>, DebugInfo),
     Number(&'a str, NumHint, DebugInfo),
     LineBreak(DebugInfo),
     Func(&'a str, DebugInfo),
@@ -485,7 +486,7 @@ impl<'a> std::fmt::Display for Token<'a> {
             Token::Type(t, _) => f.write_fmt(format_args!("__Type {:?}", t)),
             Token::Word(w, _) => f.write_fmt(format_args!("__Word {:?}", w)),
             Token::Delemiter(d, _) => f.write_fmt(format_args!("__Delemiter {:?}", d)),
-            Token::Operator(o, _) => f.write_fmt(format_args!("{:?}", o)),
+            Token::Operator(o, _, _) => f.write_fmt(format_args!("{:?}", o)),
             Token::Number(n, hint, _) => f.write_fmt(format_args!("Load {:?} {}", hint, n)),
             Token::LineBreak(_) => f.write_str("__Line-break"),
             Token::Func(name, _) => f.write_fmt(format_args!("Call {}", name)),
@@ -506,7 +507,7 @@ impl<'a> Into<DebugInfo> for Token<'a> {
             Token::Type(_, d) => d,
             Token::Word(_, d) => d,
             Token::Delemiter(_, d) => d,
-            Token::Operator(_, d) => d,
+            Token::Operator(_, _, d) => d,
             Token::Number(_, _, d) => d,
             Token::LineBreak(d) => d,
             Token::Func(_, d) => d,
@@ -577,7 +578,7 @@ pub fn tokenize<'a>(source: &'a str, diagnostics: &mut Diagnostics) -> Result<Ve
                     }
                     9 => Token::Word(mat.as_str(), debug_info),
                     10 => Token::Number(mat.as_str(), NumHint::from(mat.as_str()), debug_info),
-                    11 => Token::Operator(Operator::parse(mat.as_str()), debug_info),
+                    11 => Token::Operator(Operator::parse(mat.as_str()), None, debug_info),
                     12 => Token::Delemiter(mat.as_str().chars().nth(0).unwrap(), debug_info),
                     13 => {
                         line_count += 1;
