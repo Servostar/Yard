@@ -23,38 +23,15 @@ where
 
 fn main() {
     let source = r"
-# surely this is pi
-pi = rat 5.1415926535
 
-foo(x:int, y:rat) = bool {
-    x:int = 5 + 6
-
-    unless (x < 6) {
-        yield true
-
-        please {
-            
-        }
-
-        unless(x < 6) {
-            yield true
-        }
-    }
-    
-    -- comment
-   yield true 
+foo(x:int) = int {
+    x / 2
 }
 
 main() = int {
-    
-    a = 4
-    b = pi
-    c = true
-    r = foo(3, 4.0)
-    h = foo(3,5.0)
-    b:int = 4
-
-    9
+    a = foo(4)
+ 
+    a
 }
 ";
 
@@ -64,8 +41,10 @@ main() = int {
 
     if let Ok(mut tokens) = tokenize(source, &mut diagnostics) {
         if let Ok((fs, ds)) = parse(&mut tokens, &mut diagnostics, &settings) {
-            if let Ok(prog) = vmrt::compile(&fs, &ds) {
-                vmrt::execute(&prog);
+            if let Ok(prog) = vmrt::compile(&fs, &ds, &settings) {
+                if let Ok(exit_code) = vmrt::execute(&prog) {
+                    crate::message(MessageType::Info, format!("Program exited with {}", exit_code));
+                }
             }
         }
     }
