@@ -115,13 +115,23 @@ impl Operator {
         }
     }
 
+    fn operation_type(operands: &[Prim]) -> Option<Prim> {
+        let mut typ = None;
+        for op in operands.iter() {
+            op.merge_types(&mut typ);
+        }
+
+        typ
+    }
+
     fn present_types(
+        &self,
         operands: &[Prim],
         types: &[Prim],
         r#yield: Prim,
         info: &DebugInfo,
         diagnostics: &mut crate::parser::data::Diagnostics,
-    ) -> Result<Option<Prim>, ()> {
+    ) -> Result<(Option<Prim>, Option<Prim>), ()> {
 
         if operands.len() < types.len() {
             diagnostics.set_err(info, crate::msg::ERR74, format!(
@@ -134,27 +144,30 @@ impl Operator {
         }
 
         for (x, typ) in types.iter().enumerate() {
-            if typ != &operands[x] {
-                return Ok(None);
+            if !typ.is_equal(operands[x]) {
+                return Ok((None, None));
             }
         }
-        Ok(Some(r#yield))
+
+        // this combination fits
+        Ok((Some(r#yield), Self::operation_type(types) ))
     }
 
     fn check_types(
+        &self,
         operands: &[Prim],
         types: &[(&[Prim], Prim)],
         dbginf: &DebugInfo,
         diagnostics: &mut crate::parser::data::Diagnostics,
-    ) -> Result<Option<Prim>,()> {
+    ) -> Result<(Option<Prim>, Option<Prim>),()> {
         for combination in types.iter() {
-            if let Some(result) =
-                Self::present_types(operands, combination.0, combination.1, dbginf, diagnostics)?
+            if let (result, hint) =
+                self.present_types(operands, combination.0, combination.1, dbginf, diagnostics)?
             {
-                return Ok(Some(result));
+                return Ok((result, hint));
             }
         }
-        Ok(None)
+        Ok((None, None))
     }
 
     pub fn operate(
@@ -162,36 +175,36 @@ impl Operator {
         operands: &mut Vec<Prim>,
         info: &DebugInfo,
         diagnostics: &mut crate::parser::data::Diagnostics,
-    ) -> Result<(),()> {
+    ) -> Result<Prim,()> {
         // TODO: insert type hint
         match self {
             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => {
-                let types_valid =
-                    Self::check_types(operands, ARITHMETIC_TYPES, info, diagnostics)?;
+                let (types_valid, hint) =
+                    self.check_types(operands, ARITHMETIC_TYPES, info, diagnostics)?;
 
                 if let Some(result) = types_valid {
                     operands.pop();
                     operands.pop();
                     operands.push(result);
-                    return Ok(());
+                    return Ok(hint.unwrap());
                 } else {
                     diagnostics.set_err(info, crate::msg::ERR73, "expected two numbers");
                     return Err(());
                 }
             }
             Operator::And | Operator::Or | Operator::Xor => {
-                let types_valid = Self::check_types(
+                let types_valid = self.check_types(
                     operands,
                     &[(&[Prim::Bool, Prim::Bool], Prim::Bool)],
                     info,
                     diagnostics,
                 )?;
 
-                if let Some(result) = types_valid {
+                if let (Some(result), Some(hint)) = types_valid {
                     operands.pop();
                     operands.pop();
                     operands.push(result);
-                    return Ok(())
+                    return Ok(hint)
                 } else {
                     diagnostics.set_err(info, crate::msg::ERR73, "expected two booleans");
                     return Err(());
@@ -203,7 +216,7 @@ impl Operator {
             | Operator::Gt
             | Operator::GtEq
             | Operator::LtEq => {
-                let types_valid = Self::check_types(
+                let types_valid = self.check_types(
                     operands,
                     &[
                         (&[Prim::Int, Prim::Int], Prim::Bool),
@@ -225,11 +238,11 @@ impl Operator {
                     diagnostics,
                 )?;
 
-                if let Some(result) = types_valid {
+                if let (Some(result), Some(hint)) = types_valid {
                     operands.pop();
                     operands.pop();
                     operands.push(result);
-                    return Ok(());
+                    return Ok(hint);
                 } else {
                     diagnostics.set_err(info, crate::msg::ERR73, "expected either two booleans or two numbers");
                     return Err(());
@@ -313,6 +326,16 @@ impl Prim {
                 return Err(())
             }
         };
+    }
+
+    pub fn merge_types(&self, current: &mut Option<Prim>) {
+        if let Some(prim) = current {
+            if !prim.is_equal(*self) {
+                *current = None;
+            }
+        } else {
+            *current = Some(*self);
+        }
     }
 
     pub fn is_equal(&self, value: Prim) -> bool {
@@ -486,7 +509,7 @@ impl<'a> std::fmt::Display for Token<'a> {
             Token::Type(t, _) => f.write_fmt(format_args!("__Type {:?}", t)),
             Token::Word(w, _) => f.write_fmt(format_args!("__Word {:?}", w)),
             Token::Delemiter(d, _) => f.write_fmt(format_args!("__Delemiter {:?}", d)),
-            Token::Operator(o, _, _) => f.write_fmt(format_args!("{:?}", o)),
+            Token::Operator(o, hint, _) => f.write_fmt(format_args!("{:?} {:?}", o, hint.unwrap())),
             Token::Number(n, hint, _) => f.write_fmt(format_args!("Load {:?} {}", hint, n)),
             Token::LineBreak(_) => f.write_str("__Line-break"),
             Token::Func(name, _) => f.write_fmt(format_args!("Call {}", name)),

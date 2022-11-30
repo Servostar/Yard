@@ -64,7 +64,9 @@ main() = int {
 
     if let Ok(mut tokens) = tokenize(source, &mut diagnostics) {
         if let Ok((fs, ds)) = parse(&mut tokens, &mut diagnostics, &settings) {
-            vmrt::compile(&fs, &ds);
+            if let Ok(prog) = vmrt::compile(&fs, &ds) {
+                vmrt::execute(&prog);
+            }
         }
     }
 

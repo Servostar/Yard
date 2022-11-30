@@ -493,7 +493,7 @@ fn collapse_operation(
 ) -> Result<(), ()> {
 
     match operation {
-        Token::Operator(op, _, dbginf) => op.operate(operands, &dbginf, diagnostics)?,
+        Token::Operator(op, ref mut typehint, dbginf) => *typehint = Some(op.operate(operands, &dbginf, diagnostics)?),
         Token::Assign(name, ref mut typ, dbginf) => {
             check_var_typ(typ, operands, &dbginf, diagnostics)?;
             scope.decl_var((*name).to_owned(), typ.clone());

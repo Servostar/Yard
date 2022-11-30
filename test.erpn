@@ -3,18 +3,18 @@ pi:
 foo:
 	Load Int 5
 	Load Int 6
-	Add
+	Add Int
 	Store Int x
 	Load Arg x
 	Load Int 6
-	Lt
+	Lt Int
 	Unless
 		Load Bool true
 		Yield
 		Please
 		Load Arg x
 		Load Int 6
-		Lt
+		Lt Int
 		Unless
 			Load Bool true
 			Yield

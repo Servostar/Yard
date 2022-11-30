@@ -146,6 +146,21 @@ impl<'a> Declr<'a> {
         }
     }
 
+    pub fn main() -> Self {
+        let mut main = Declr {
+            name: Some("main"),
+            args: None,
+            results: true,
+            result_typ: Some(Prim::Int),
+            info: None,
+            uuid: 0
+        };
+
+        main.gen_uuid();
+
+        main
+    }
+
     pub fn get_arg_ord(&self, name: &str) -> usize {
         if let Some(args) = self.args.as_ref() {
             for (x, arg) in args.iter().enumerate() {
