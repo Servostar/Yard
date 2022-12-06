@@ -200,3 +200,8 @@ pub const ERR74: &DebugMsg = &DebugMsg {
     code: 74,
     msg: "Missing operands",
 };
+pub const ERR75: &DebugMsg = &DebugMsg {
+    typ: crate::token::MessageType::Critical,
+    code: 75,
+    msg: "Unknown operation",
+};

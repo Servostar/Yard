@@ -26,12 +26,18 @@ fn main() {
 -- structs are tables
 
 main() = int {
+    
+    x:rat = 0.0;
 
-    unless 2 == 4 {
-        yield 1;
+    loop {
+        x = x + 4
+
+        unless x < 16 {
+            break
+        }
     }
     
-    yield 0;
+    yield x;
 }
 ";
 

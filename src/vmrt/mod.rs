@@ -201,6 +201,7 @@ pub struct Program {
 enum LabelType {
     Unless(usize),
     Loop(usize),
+    Break(usize),
     Pad
 }
 
@@ -208,6 +209,8 @@ enum LabelType {
 struct Compiletime<'a> {
     vartable: HashMap<&'a str, usize>,
     labels: Vec<LabelType>,
+    lopctl: Vec<LabelType>,
+    marker: HashMap<&'a str, usize>,
     stacksize: usize,
 }
 
@@ -238,13 +241,20 @@ fn parse_term<'a>(
                 ct.stacksize += 1;
             }
             Token::Assign(name, _, _) => {
-                ct.vartable.insert(name.clone(), ct.stacksize - 1);
-                code.push(Instr::Store(ct.stacksize - 1));
+                if ct.vartable.get(name).is_none() {
+                    ct.vartable.insert(name.clone(), ct.stacksize - 1);
+                    code.push(Instr::Store(ct.stacksize - 1));
+                } else {
+                    code.push(Instr::Store(*ct.vartable.get(name).unwrap()));
+                }
             }
             Token::Var(name, _) => {
                 code.push(Instr::Load(*ct.vartable.get(name).unwrap()));
                 ct.stacksize += 1;
-            }
+            },
+            Token::Label(name, _) => {
+                ct.marker.insert(name, ct.stacksize + 1);
+            },
             Token::Operator(op, hint, _) => {
                 code.push(match op {
                     crate::token::Operator::Or => Instr::Operation(Operation::Bool(BoolOp::Or)),
@@ -331,9 +341,20 @@ fn parse_term<'a>(
                 crate::token::Keyword::Yield | crate::token::Keyword::Return => {
                     code.push(Instr::Return)
                 },
+                crate::token::Keyword::Loop => {
+                    ct.labels.push(LabelType::Loop(code.len()));
+                },
                 crate::token::Keyword::Unless => {
                     ct.labels.push(LabelType::Unless(code.len()));
                     code.push(Instr::JumpUnless(0));
+                },
+                crate::token::Keyword::Goto(label) => {
+                    let index = ct.marker.get(label).unwrap();
+                    code.push(Instr::Jump(*index));
+                },
+                crate::token::Keyword::Break => {
+                    ct.lopctl.push(LabelType::Break(code.len()));
+                    code.push(Instr::Jump(0));
                 }
                 _ => (),
             },
@@ -364,6 +385,18 @@ fn parse_block<'a>(
             LabelType::Unless(line) => {
                 prog[line] = Instr::JumpUnless(prog.len());
             },
+            LabelType::Loop(line) => {
+                prog.push(Instr::Jump(line));
+
+                if let Some(label) = ct.lopctl.pop() {
+                    match label {
+                        LabelType::Break(line) => {
+                            prog[line] = Instr::Jump(prog.len());
+                        },
+                        _ => ()
+                    }
+                }
+            }, 
             _ => ()
         }
     }
@@ -487,8 +520,8 @@ fn call_fn(prog: &Program, proc: &Proc, superstack: &[Data]) -> Result<Option<Da
             },
             Instr::JumpUnless(addr) => {
                 match stack.pop() {
-                    Some(Data::Bool(false)) => x = *addr - 1,
-                    Some(Data::Bool(true)) => (),
+                    Some(Data::Bool(true)) => x = *addr - 1,
+                    Some(Data::Bool(false)) => (),
                     _ => {
                         crate::message(crate::token::MessageType::Critical, "no condition for unless on stack");
                         panic!();

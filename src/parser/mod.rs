@@ -614,6 +614,7 @@ fn parse_term<'a>(
             Token::Assign(_, _, _) => {
                 op_stack.push(token);
             }
+            Token::Label(_, _) => output.push_back(token),
             Token::Keyword(key, _) => {
                 match key {
                     Keyword::Unless => (),

@@ -1,10 +1,16 @@
 main:
-	Load Int 2
-	Load Int 4
-	Eq Int
-	Unless
-		Load Int 1
-		Yield
 	Load Int 0
+	Store Int x
+	Loop
+		Load Var x
+		Load Int 4
+		Add Int
+		Store Int x
+		Load Var x
+		Load Int 16
+		Lt Int
+		Unless
+			Break
+	Load Var x
 	Yield
 

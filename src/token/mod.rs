@@ -1,5 +1,5 @@
 use colored::{ColoredString, Colorize};
-use std::collections::VecDeque;
+use std::{collections::VecDeque, fmt::format};
 
 use crate::parser::data::Diagnostics;
 
@@ -78,7 +78,8 @@ impl Operator {
             "-" => Operator::Sub,
             "*" => Operator::Mul,
             "/" => Operator::Div,
-            "=" => Operator::Assign,
+            "=" => {
+                Operator::Assign },
 
             _ => {
                 crate::message(MessageType::Critical, "Unknown operator");
@@ -248,14 +249,15 @@ impl Operator {
                 }
             }
             _ => {
-                panic!("Unknown operator");
+                diagnostics.set_err(info, crate::msg::ERR75, format!("token {:?}", self));
+                return Err(());
             }
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum Keyword {
+pub enum Keyword<'a> {
     Unless,
     While,
     /// while(true) loop
@@ -265,10 +267,17 @@ pub enum Keyword {
     Return,
     Yield,
     Please,
+    Goto(&'a str),
 }
 
-impl Keyword {
-    pub fn parse<'a>(text: &'a str) -> Keyword {
+const GOTO_REGEX_SRC: &'static str = r"goto\s+([a-zA-Z0-9]+)";
+
+lazy_static::lazy_static! {
+    static ref GOTO_REGEX: regex::Regex = regex::Regex::new(GOTO_REGEX_SRC).unwrap();
+}
+
+impl<'a> Keyword<'a> {
+    pub fn parse(text: &'a str) -> Keyword<'a> {
         return match text {
             "unless" => Keyword::Unless,
             "while" => Keyword::While,
@@ -279,6 +288,11 @@ impl Keyword {
             "yield" => Keyword::Yield,
             "please" => Keyword::Please,
             _ => {
+               
+                for cap in GOTO_REGEX.captures_iter(text) {
+                    return Keyword::Goto(cap.get(1).unwrap().as_str());
+                }
+        
                 crate::message(
                     MessageType::Critical,
                     format!("not a known keyword: {}", text),
@@ -496,15 +510,17 @@ pub enum Token<'a> {
     Decl(&'a str, Prim, DebugInfo),
     Bool(bool, DebugInfo),
     /// Keywords like ```if```,```break```,```while```
-    Keyword(Keyword, DebugInfo),
+    Keyword(Keyword<'a>, DebugInfo),
     Type(Prim, DebugInfo),
     /// Semicolon
-    Terminator(DebugInfo)
+    Terminator(DebugInfo),
+    Label(&'a str, DebugInfo)
 }
 
 impl<'a> std::fmt::Display for Token<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Token::Label(name, _) => f.write_fmt(format_args!(" {}:", name)),
             Token::Type(t, _) => f.write_fmt(format_args!("__Type {:?}", t)),
             Token::Word(w, _) => f.write_fmt(format_args!("__Word {:?}", w)),
             Token::Delemiter(d, _) => f.write_fmt(format_args!("__Delemiter {:?}", d)),
@@ -540,11 +556,12 @@ impl<'a> Into<DebugInfo> for Token<'a> {
             Token::Bool(_, d) => d,
             Token::Keyword(_, d) => d,
             Token::Terminator(d) => d,
+            Token::Label(_, d) => d,
         }
     }
 }
 
-const TOKEN_REGEX_SRC: &'static str = r"(#.*|--.*)|(unless|while|loop|break|cont|ret|yield|please)|(int|rat|bool)|(true|false|ye|no|maybe)|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))?\s*=|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>=])|([(){}])|(\n)|(;)";
+const TOKEN_REGEX_SRC: &'static str = r"(#.*|--.*)|'([a-zA-Z0-9]+)|(goto\s+[a-zA-Z0-9]+|unless|while|loop|break|cont|ret|yield|please)|(int|rat|bool)|(true|false|ye|no|maybe)|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))?\s*=[^=]|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9]+))|([A-Za-z_]+)|(\d*\.?\d+)|(!=|==|<=|<=|[&|+\-*/<>=])|([(){}])|(\n)|(;)";
 
 lazy_static::lazy_static! {
     static ref TOKEN_REGEX: regex::Regex = regex::Regex::new(TOKEN_REGEX_SRC).unwrap();
@@ -582,10 +599,11 @@ pub fn tokenize<'a>(source: &'a str, diagnostics: &mut Diagnostics) -> Result<Ve
                 };
 
                 tokens.push_back(match i {
-                    2 => Token::Keyword(Keyword::parse(mat.as_str()), debug_info),
-                    3 => Token::Type(Prim::from(mat.as_str(), &debug_info, diagnostics)?, debug_info),
-                    4 => Token::Bool(parse_bool(mat.as_str()), debug_info),
-                    5 => {
+                    2 => Token::Label(mat.as_str(), debug_info),
+                    3 => Token::Keyword(Keyword::parse(mat.as_str()), debug_info),
+                    4 => Token::Type(Prim::from(mat.as_str(), &debug_info, diagnostics)?, debug_info),
+                    5 => Token::Bool(parse_bool(mat.as_str()), debug_info),
+                    6 => {
                         let var_type = if let Some(mat) = enumerator.next().unwrap().1 {
                             Some(Prim::from(mat.as_str(), &debug_info, diagnostics)?)
                         } else {
@@ -593,21 +611,21 @@ pub fn tokenize<'a>(source: &'a str, diagnostics: &mut Diagnostics) -> Result<Ve
                         };
                         Token::Assign(mat.as_str(), var_type, debug_info)
                     }
-                    7 => {
+                    8 => {
                         let var_type =
                             Prim::from(enumerator.next().unwrap().1.unwrap().as_str(), &debug_info, diagnostics)?;
                         Token::Decl(mat.as_str(), var_type, debug_info)
                     }
-                    9 => Token::Word(mat.as_str(), debug_info),
-                    10 => Token::Number(mat.as_str(), NumHint::from(mat.as_str()), debug_info),
-                    11 => Token::Operator(Operator::parse(mat.as_str()), None, debug_info),
-                    12 => Token::Delemiter(mat.as_str().chars().nth(0).unwrap(), debug_info),
-                    13 => {
+                    10 => Token::Word(mat.as_str(), debug_info),
+                    11 => Token::Number(mat.as_str(), NumHint::from(mat.as_str()), debug_info),
+                    12 => Token::Operator(Operator::parse(mat.as_str()), None, debug_info),
+                    13 => Token::Delemiter(mat.as_str().chars().nth(0).unwrap(), debug_info),
+                    14 => {
                         line_count += 1;
                         line_start = mat.start();
                         Token::LineBreak(debug_info)
                     }
-                    14 => Token::Terminator(debug_info),
+                    15 => Token::Terminator(debug_info),
 
                     _ => {
                         diagnostics.set_err(&debug_info, crate::msg::ERR71, format!("token: {}", mat.as_str()));
@@ -628,7 +646,7 @@ fn parse_bool(text: &str) -> bool {
         "false" | "no" => false,
         "maybe" => rand::random(),
         _ => {
-            crate::message(MessageType::Critical, format!("token: {}", text));
+            crate::message(MessageType::Critical, format!("token is not a boolean value: {}", text));
             panic!();
         },
     };
