@@ -324,13 +324,14 @@ fn discover_exprs<'a>(
                         }
                         expr = VecDeque::new();
                         blocks.push(Block::new());
+
                         continue;
                     }
                     '}' => {
                         // pop topmost block of the stack, storing it in the next lower block
                         if let Some(block) = blocks.pop() {
                             if let Some(dst) = blocks.last_mut() {
-                                dst.push_back(Expr::Block(block));
+                                dst.push_back(Expr::Block(block)); 
                             } else {
                                 diagnostics.set_err(&top, crate::msg::ERR41, "");
                                 return Err(());
@@ -346,7 +347,7 @@ fn discover_exprs<'a>(
                         }
 
                         continue;
-                    }
+                    },
                     _ => (),
                 },
                 _ => (),
@@ -356,7 +357,7 @@ fn discover_exprs<'a>(
         }
 
         if !expr.is_empty() {
-            if let Some(block) = blocks.last_mut() {
+            if let Some(block) = blocks.last_mut() {     
                 block.push_back(Expr::Term(expr));
             } else {
                 diagnostics.set_err(expr.back().unwrap(), crate::msg::ERR40, "");
@@ -613,7 +614,13 @@ fn parse_term<'a>(
             Token::Assign(_, _, _) => {
                 op_stack.push(token);
             }
-            Token::Keyword(_, _) => op_stack.push(token),
+            Token::Keyword(key, _) => {
+                match key {
+                    Keyword::Unless => (),
+                    _ => ()
+                }
+                op_stack.push(token)
+            },
 
             Token::Delemiter(char, _) => match char {
                 '(' => op_stack.push(token),
@@ -689,6 +696,7 @@ fn parse_term<'a>(
             }
             _ => (),
         }
+
     }
 
     while let Some(mut token) = op_stack.pop() {

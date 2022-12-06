@@ -161,11 +161,10 @@ impl Operator {
         diagnostics: &mut crate::parser::data::Diagnostics,
     ) -> Result<(Option<Prim>, Option<Prim>),()> {
         for combination in types.iter() {
-            if let (result, hint) =
-                self.present_types(operands, combination.0, combination.1, dbginf, diagnostics)?
-            {
-                return Ok((result, hint));
-            }
+            let (result, hint) =
+                self.present_types(operands, combination.0, combination.1, dbginf, diagnostics)?;
+            
+            return Ok((result, hint));
         }
         Ok((None, None))
     }
@@ -500,7 +499,7 @@ pub enum Token<'a> {
     Keyword(Keyword, DebugInfo),
     Type(Prim, DebugInfo),
     /// Semicolon
-    Terminator(DebugInfo),
+    Terminator(DebugInfo)
 }
 
 impl<'a> std::fmt::Display for Token<'a> {

@@ -35,5 +35,6 @@ pub fn convert_to_erpn<'a>(funcs: &mut Vec<Func<'a>>, declrs: &Vec<Declr<'a>>) {
 
         // write down function body
         write_expr(&mut file, &mut indent, func.expr.as_ref().unwrap());
+        writeln!(&mut file).unwrap();
     }
 }

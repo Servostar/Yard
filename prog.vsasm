@@ -1,0 +1,10 @@
+
+0xc8c7a99bb88e156b:
+	push int 0x2
+	push int 0x4
+	cmp eq int
+	jump-unless 0x6
+	push int 0x1
+	ret
+	push int 0x0
+	ret

@@ -12,7 +12,17 @@ enum Data {
     Int(i64),
     Rat(f64),
     Bool(bool),
-    Off(u64),
+}
+
+impl std::fmt::Display for Data {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Data::Int(v) => f.write_fmt(format_args!("int {:#x}", v))?,
+            Data::Rat(v) => f.write_fmt(format_args!("float {}", v))?,
+            Data::Bool(v) => f.write_fmt(format_args!("bool {}", v))?
+        }
+        Ok(())
+    }
 }
 
 impl Data {
@@ -95,7 +105,7 @@ enum Instr {
     /// push the value stored at offset from the local stack onto the local stack
     Load(usize),
     /// store the value stored at the stack[0](offset) stack[1](value) onto the stack
-    Store,
+    Store(usize),
 
     Call(u64),
 
@@ -103,7 +113,65 @@ enum Instr {
 
     Operation(Operation),
 
+    Jump(usize),
+    JumpUnless(usize),
+
     Exit,
+}
+
+impl std::fmt::Display for Instr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Instr::Pop => f.write_str("\tpop")?,
+            Instr::Exit => f.write_str("\texit")?,
+            Instr::Return => f.write_str("\tret")?,
+            Instr::Load(offset) => f.write_fmt(format_args!("\tload {:#x}", offset))?,
+            Instr::Push(value) => f.write_fmt(format_args!("\tpush {}", value))?,
+            Instr::Call(uuid) => f.write_fmt(format_args!("\tcall {:#x}", uuid))?,
+            Instr::Jump(offset) => f.write_fmt(format_args!("\tjump {:#x}", offset))?,
+            Instr::JumpUnless(offset) => f.write_fmt(format_args!("\tjump-unless {:#x}", offset))?,
+            Instr::Operation(op) => {
+                match op {
+                    Operation::Int(op) => match op {
+                        IntOp::Add => f.write_str("\tadd int")?,
+                        IntOp::Sub => f.write_str("\tsub int")?,
+                        IntOp::Mul => f.write_str("\tmul int")?,
+                        IntOp::Div => f.write_str("\tdiv int")?,
+
+                        IntOp::CmpEq => f.write_str("\tcmp eq int")?,
+                        IntOp::CmpNEq => f.write_str("\tcmp not-eq int")?,
+                        IntOp::CmpLt => f.write_str("\tcmp lt eq int")?,
+                        IntOp::CmpGt => f.write_str("\tcmp gt int")?,
+                        IntOp::CmpLtEq => f.write_str("\tcmp lt-eq int")?,
+                        IntOp::CmpGtEq => f.write_str("\tcmp gt-eq int")?,
+                    },
+                    Operation::Rat(op) => match op {
+                        RatOp::Add => f.write_str("\tadd float")?,
+                        RatOp::Sub => f.write_str("\tsub float")?,
+                        RatOp::Mul => f.write_str("\tmul float")?,
+                        RatOp::Div => f.write_str("\tdiv float")?,
+
+                        RatOp::CmpEq => f.write_str("\tcmp eq float")?,
+                        RatOp::CmpNEq => f.write_str("\tcmp not-eq float")?,
+                        RatOp::CmpLt => f.write_str("\tcmp lt eq float")?,
+                        RatOp::CmpGt => f.write_str("\tcmp gt float")?,
+                        RatOp::CmpLtEq => f.write_str("\tcmp lt-eq float")?,
+                        RatOp::CmpGtEq => f.write_str("\tcmp gt-eq float")?,
+                    },
+                    Operation::Bool(op) => match op {
+                        BoolOp::And => f.write_str("\tand")?,
+                        BoolOp::Or => f.write_str("\tor")?,
+                        BoolOp::Xor => f.write_str("\txor")?,
+
+                        BoolOp::CmpNEq => f.write_str("\tcmp not-eq bool")?,
+                        BoolOp::CmpEq => f.write_str("\tcmp eq bool")?,
+                    }
+                }
+            },
+            Instr::Store(offset) => f.write_fmt(format_args!("\tstore {:#x}", offset))?,
+        }
+        Ok(())
+    }
 }
 
 /// function stack layout
@@ -130,9 +198,16 @@ pub struct Program {
     procs: HashMap<u64, Proc>,
 }
 
+enum LabelType {
+    Unless(usize),
+    Loop(usize),
+    Pad
+}
+
 #[derive(Default)]
 struct Compiletime<'a> {
     vartable: HashMap<&'a str, usize>,
+    labels: Vec<LabelType>,
     stacksize: usize,
 }
 
@@ -143,8 +218,9 @@ fn parse_term<'a>(
     ct: &mut Compiletime<'a>,
     code: &mut Vec<Instr>,
 ) -> Result<(), ()> {
+    
     for token in term.iter() {
-        let instr = match token {
+        match token {
             Token::Number(value, hint, _) => {
                 code.push(Instr::Push(match hint {
                     NumHint::Int => Data::Int(value.parse::<i64>().unwrap()),
@@ -158,12 +234,12 @@ fn parse_term<'a>(
             }
             Token::Arg(name, _) => {
                 let off = declr[x].get_arg_ord(name);
-
                 code.push(Instr::Load(off));
                 ct.stacksize += 1;
             }
             Token::Assign(name, _, _) => {
                 ct.vartable.insert(name.clone(), ct.stacksize - 1);
+                code.push(Instr::Store(ct.stacksize - 1));
             }
             Token::Var(name, _) => {
                 code.push(Instr::Load(*ct.vartable.get(name).unwrap()));
@@ -254,10 +330,13 @@ fn parse_term<'a>(
             Token::Keyword(keyword, _) => match keyword {
                 crate::token::Keyword::Yield | crate::token::Keyword::Return => {
                     code.push(Instr::Return)
+                },
+                crate::token::Keyword::Unless => {
+                    ct.labels.push(LabelType::Unless(code.len()));
+                    code.push(Instr::JumpUnless(0));
                 }
                 _ => (),
             },
-
             _ => (),
         };
     }
@@ -271,9 +350,24 @@ fn parse_block<'a>(
     ct: &mut Compiletime<'a>,
     prog: &mut Vec<Instr>,
 ) -> Result<(), ()> {
+
+    ct.labels.push(LabelType::Pad);
+
     for expr in block.iter() {
         compile_expr(expr, x, declr, ct, prog)?;
     }
+    // resolve JumpUnless Labels
+    ct.labels.pop();
+
+    if let Some(label) = ct.labels.pop() {
+        match label {
+            LabelType::Unless(line) => {
+                prog[line] = Instr::JumpUnless(prog.len());
+            },
+            _ => ()
+        }
+    }
+
     Ok(())
 }
 
@@ -320,7 +414,9 @@ pub fn compile<'a>(funcs: &Vec<Func<'a>>, declrs: &Vec<Declr<'a>>, settings: &cr
             .insert(declrs[x].uuid(), create_proc(&declrs[x], code));
     }
 
-     
+    if settings.gen_vsasm() {
+        output::dump_program(&prog);
+    } 
 
     Ok(prog)
 }
@@ -345,6 +441,14 @@ impl Runtimestack {
     pub fn peek(&mut self, index: usize) -> Data {
         self.stack[index]
     }
+
+    pub fn top(&self) -> &Data {
+        &self.stack[self.stack.len() - 1]
+    }
+
+    pub fn put(&mut self, offset: usize, value: Data)  {
+        self.stack[offset] = value;
+    }
 }
 
 fn call_fn(prog: &Program, proc: &Proc, superstack: &[Data]) -> Result<Option<Data>, ()> {
@@ -354,9 +458,10 @@ fn call_fn(prog: &Program, proc: &Proc, superstack: &[Data]) -> Result<Option<Da
     for i in 0..proc.args {
         stack.push(superstack[superstack.len() - i - 1].clone());
     }
-
-    for instr in proc.code.iter() {
-        match instr {
+    
+    let mut x = 0;
+    while x < proc.code.len() {
+        match &proc.code[x] {
             Instr::Pop => {
                 stack.pop();
             }
@@ -368,9 +473,26 @@ fn call_fn(prog: &Program, proc: &Proc, superstack: &[Data]) -> Result<Option<Da
                 let v = stack.peek(*offset);
                 stack.push(v);
             },
+            Instr::Store(offset) => {
+                let data = stack.top().clone();
+                stack.put(*offset, data);
+            },
             Instr::Call(addr) => {
                 if let Some(value) = call_fn(prog, prog.procs.get(addr).unwrap(), &stack.stack)? {
                     stack.push(value);
+                }
+            },
+            Instr::Jump(addr) => {
+                x = *addr - 1;
+            },
+            Instr::JumpUnless(addr) => {
+                match stack.pop() {
+                    Some(Data::Bool(false)) => x = *addr - 1,
+                    Some(Data::Bool(true)) => (),
+                    _ => {
+                        crate::message(crate::token::MessageType::Critical, "no condition for unless on stack");
+                        panic!();
+                    }
                 }
             },
             Instr::Operation(op) => {
@@ -461,6 +583,7 @@ fn call_fn(prog: &Program, proc: &Proc, superstack: &[Data]) -> Result<Option<Da
             }
             _ => (),
         }
+        x += 1;
     }
 
     Ok(stack.pop())
@@ -480,7 +603,7 @@ pub fn execute(prog: &Program) -> Result<i64, ()> {
         return Err(());
     } else {
         crate::message(
-            crate::token::MessageType::Critical,
+            crate::token::MessageType::Error,
             "Program has no main() = int function",
         );
         return Err(());

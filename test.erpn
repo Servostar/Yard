@@ -1,40 +1,10 @@
-pi:
-	Load Rat 5.1415926535
-foo:
-	Load Int 5
-	Load Int 6
-	Add Int
-	Store Int x
-	Load Arg x
-	Load Int 6
-	Lt Int
-	Unless
-		Load Bool true
-		Yield
-		Please
-		Load Arg x
-		Load Int 6
-		Lt Int
-		Unless
-			Load Bool true
-			Yield
-	Load Bool true
-	Yield
 main:
+	Load Int 2
 	Load Int 4
-	Store Int a
-	Call pi
-	Store Rat b
-	Load Bool true
-	Store Bool c
-	Load Int 3
-	Load Rat 4.0
-	Call foo
-	Store Bool r
-	Load Int 3
-	Load Rat 5.0
-	Call foo
-	Store Bool h
-	Load Int 4
-	Store Int b
-	Load Int 9
+	Eq Int
+	Unless
+		Load Int 1
+		Yield
+	Load Int 0
+	Yield
+

@@ -2,7 +2,7 @@ use std::io::Write;
 
 fn print_to_file(file: &mut std::fs::File, prog: &crate::vmrt::Program) -> std::io::Result<()> {
     for proc in prog.procs.iter() {
-        writeln!(file, "\n0x{:#x}:", proc.0)?;
+        writeln!(file, "\n{:#x}:", proc.0)?;
 
         for instr in proc.1.code.iter() {
             writeln!(file, "{}", instr)?;

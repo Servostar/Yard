@@ -18,20 +18,20 @@ pub fn message<S>(typ: MessageType, msg: S)
 where
     S: Into<String>,
 {
-    println!("{}: {}", typ.to_colored(), msg.into().bold().bright_white());
+    println!("{}: {}\n", typ.to_colored(), msg.into().bold().bright_white());
 }
 
 fn main() {
     let source = r"
-
-foo(x:int) = int {
-    x / 2
-}
+-- structs are tables
 
 main() = int {
-    a = foo(4)
- 
-    a
+
+    unless 2 == 4 {
+        yield 1;
+    }
+    
+    yield 0;
 }
 ";
 
