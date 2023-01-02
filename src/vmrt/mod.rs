@@ -1,17 +1,18 @@
 mod output;
 
-use std::collections::{HashMap, VecDeque};
+use std::{collections::{HashMap, VecDeque}, vec};
 
 use crate::{
     parser::data::*,
-    token::{NumHint, Prim, Token},
+    token::{NumHint, Prim, Token}, builtin::{BuiltinFun},
 };
 
-#[derive(Debug, Clone, Copy)]
-enum Data {
+#[derive(Debug, Clone)]
+pub enum Data {
     Int(i64),
     Rat(f64),
     Bool(bool),
+    Str(String),
 }
 
 impl std::fmt::Display for Data {
@@ -19,31 +20,48 @@ impl std::fmt::Display for Data {
         match self {
             Data::Int(v) => f.write_fmt(format_args!("int {:#x}", v))?,
             Data::Rat(v) => f.write_fmt(format_args!("float {}", v))?,
-            Data::Bool(v) => f.write_fmt(format_args!("bool {}", v))?
+            Data::Bool(v) => f.write_fmt(format_args!("bool {}", v))?,
+            Data::Str(v) => f.write_fmt(format_args!("string \"{}\"", &v))?
         }
         Ok(())
     }
 }
 
 impl Data {
-    fn to_int(&self) -> Result<i64, ()> {
+    pub fn to_int(&self) -> Result<i64, ()> {
         return match self {
             Data::Int(v) => Ok(*v),
             _ => Err(()),
         };
     }
 
-    fn to_float(&self) -> Result<f64, ()> {
+    pub fn to_float(&self) -> Result<f64, ()> {
         return match self {
             Data::Rat(v) => Ok(*v),
             _ => Err(()),
         };
     }
 
-    fn to_bool(&self) -> Result<bool, ()> {
+    pub fn to_bool(&self) -> Result<bool, ()> {
         return match self {
             Data::Bool(v) => Ok(*v),
             _ => Err(()),
+        };
+    }
+
+    pub fn to_str(&self) -> Result<String, ()> {
+        return match self {
+            Data::Str(v) => Ok(v.clone()),
+            _ => Err(()),
+        };
+    }
+
+    fn as_str(&self) -> String {
+        return match self {
+            Data::Str(v) => v.clone(),
+            Data::Bool(b) => format!("{}", b),
+            Data::Rat(b) => format!("{}", b),
+            Data::Int(b) => format!("{}", b),
         };
     }
 }
@@ -93,9 +111,11 @@ enum Operation {
     Int(IntOp),
     Rat(RatOp),
     Bool(BoolOp),
+    Cat,
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 enum Instr {
     /// load some data onto the stack
     Push(Data),
@@ -115,6 +135,7 @@ enum Instr {
 
     Jump(usize),
     JumpUnless(usize),
+    JumpRandom(usize),
 
     Exit,
 }
@@ -130,8 +151,10 @@ impl std::fmt::Display for Instr {
             Instr::Call(uuid) => f.write_fmt(format_args!("\tcall {:#x}", uuid))?,
             Instr::Jump(offset) => f.write_fmt(format_args!("\tjump {:#x}", offset))?,
             Instr::JumpUnless(offset) => f.write_fmt(format_args!("\tjump-unless {:#x}", offset))?,
+            Instr::JumpRandom(offset) => f.write_fmt(format_args!("\tjump-random {:#x}", offset))?,
             Instr::Operation(op) => {
                 match op {
+                    Operation::Cat => f.write_str("\tcat")?,
                     Operation::Int(op) => match op {
                         IntOp::Add => f.write_str("\tadd int")?,
                         IntOp::Sub => f.write_str("\tsub int")?,
@@ -165,7 +188,7 @@ impl std::fmt::Display for Instr {
 
                         BoolOp::CmpNEq => f.write_str("\tcmp not-eq bool")?,
                         BoolOp::CmpEq => f.write_str("\tcmp eq bool")?,
-                    }
+                    },
                 }
             },
             Instr::Store(offset) => f.write_fmt(format_args!("\tstore {:#x}", offset))?,
@@ -184,25 +207,31 @@ impl std::fmt::Display for Instr {
 /// +----------------------------------+
 /// | Parameter (n)                    |
 /// +----------------------------------+
-struct Proc {
+#[allow(unused)]
+struct Proc<'a> {
     // executable code
     code: Vec<Instr>,
     // number of expected arguments
     args: usize,
     // hashed declaration is used as "address"
     addr: u64,
+
+    builtin: Option<&'a BuiltinFun>
 }
 
 #[derive(Default)]
-pub struct Program {
-    procs: HashMap<u64, Proc>,
+pub struct Program<'a> {
+    procs: HashMap<u64, Proc<'a>>,
 }
 
 enum LabelType {
     Unless(usize),
     Loop(usize),
     Break(usize),
-    Pad
+    Pad,
+    JumpRandom(usize),
+    While(usize),
+    LoopStart(usize),
 }
 
 #[derive(Default)]
@@ -234,7 +263,11 @@ fn parse_term<'a>(
             Token::Bool(value, _) => {
                 code.push(Instr::Push(Data::Bool(*value)));
                 ct.stacksize += 1;
-            }
+            },
+            Token::String(value, _) => {
+                code.push(Instr::Push(Data::Str(String::from(*value))));
+                ct.stacksize += 1;
+            },
             Token::Arg(name, _) => {
                 let off = declr[x].get_arg_ord(name);
                 code.push(Instr::Load(off));
@@ -253,10 +286,14 @@ fn parse_term<'a>(
                 ct.stacksize += 1;
             },
             Token::Label(name, _) => {
-                ct.marker.insert(name, ct.stacksize + 1);
+                ct.marker.insert(name, code.len());
+            },
+            Token::LoopStart => {
+                ct.lopctl.push(LabelType::LoopStart(code.len()));
             },
             Token::Operator(op, hint, _) => {
                 code.push(match op {
+                    crate::token::Operator::Cat => Instr::Operation(Operation::Cat),
                     crate::token::Operator::Or => Instr::Operation(Operation::Bool(BoolOp::Or)),
                     crate::token::Operator::And => Instr::Operation(Operation::Bool(BoolOp::And)),
                     crate::token::Operator::Xor => Instr::Operation(Operation::Bool(BoolOp::Xor)),
@@ -333,6 +370,7 @@ fn parse_term<'a>(
 
                         if decl.results {
                             ct.stacksize += 1;
+                            ct.stacksize -= decl.args.as_ref().unwrap_or(&Vec::new()).len();
                         }
                     }
                 }
@@ -349,14 +387,34 @@ fn parse_term<'a>(
                     code.push(Instr::JumpUnless(0));
                 },
                 crate::token::Keyword::Goto(label) => {
-                    let index = ct.marker.get(label).unwrap();
+                    let index = ct.marker.get(*label).unwrap();
                     code.push(Instr::Jump(*index));
                 },
                 crate::token::Keyword::Break => {
                     ct.lopctl.push(LabelType::Break(code.len()));
                     code.push(Instr::Jump(0));
-                }
-                _ => (),
+                },
+                crate::token::Keyword::Please => {
+                    ct.labels.push(LabelType::JumpRandom(code.len()));
+                    code.push(Instr::JumpRandom(0));
+                },
+                crate::token::Keyword::While => {
+                    ct.labels.push(LabelType::While(code.len()));
+                    code.push(Instr::JumpUnless(0));
+                },
+                crate::token::Keyword::Continue => {
+                    // make cont work in loop
+                    for label in ct.lopctl.iter().rev() {
+                        match label {
+                           LabelType::LoopStart(line) => {
+                                code.push(Instr::Jump(*line));
+                                break;
+                           },
+                           _ => (), 
+                        }
+                    }
+
+                },
             },
             _ => (),
         };
@@ -385,14 +443,29 @@ fn parse_block<'a>(
             LabelType::Unless(line) => {
                 prog[line] = Instr::JumpUnless(prog.len());
             },
+            LabelType::JumpRandom(line) => {
+                prog[line] = Instr::JumpRandom(prog.len());
+            },
+            LabelType::While(whilepos) => {
+                if let Some(label) = ct.lopctl.pop() {
+                    match label {
+                        LabelType::LoopStart(loopstart) => {
+                            prog.push(Instr::Jump(loopstart));
+                            prog[whilepos] = Instr::JumpUnless(prog.len());
+                         },
+                        _ => ()
+                    }
+                }
+            },
             LabelType::Loop(line) => {
                 prog.push(Instr::Jump(line));
 
+                // multiple breaks?
                 if let Some(label) = ct.lopctl.pop() {
                     match label {
                         LabelType::Break(line) => {
                             prog[line] = Instr::Jump(prog.len());
-                        },
+                         },
                         _ => ()
                     }
                 }
@@ -419,7 +492,7 @@ fn compile_expr<'a>(
     Ok(())
 }
 
-fn create_proc(declr: &Declr, code: Vec<Instr>) -> Proc {
+fn create_proc(declr: &Declr, code: Vec<Instr>) -> Proc<'static> {
     Proc {
         code,
         args: if let Some(args) = &declr.args {
@@ -428,23 +501,36 @@ fn create_proc(declr: &Declr, code: Vec<Instr>) -> Proc {
             0
         },
         addr: declr.uuid(),
+        builtin: None,
     }
 }
 
-pub fn compile<'a>(funcs: &Vec<Func<'a>>, declrs: &Vec<Declr<'a>>, settings: &crate::conf::Settings) -> Result<Program, ()> {
+pub fn compile<'a>(funcs: &Vec<Func<'a>>, declrs: &Vec<Declr<'a>>, builtin: &'a Vec<BuiltinFun>, settings: &crate::conf::Settings) -> Result<Program<'a>, ()> {
     let mut prog = Program::default();
 
     for (x, func) in funcs.iter().enumerate() {
-        let mut code = vec![];
-        let mut ct = Compiletime::default();
+        if func.is_builtin {
 
-        //at the beginning there are all parameters on the stack
-        ct.stacksize = declrs[x].args.as_ref().unwrap_or(&vec![]).len();
+            for builtin in builtin.iter() {
+                if builtin.declr().name == declrs[x].name {
+                    prog.procs.insert(declrs[x].uuid(), create_builtin_proc(builtin));
+                    break;
+                }
+            }
 
-        compile_expr(func.expr.as_ref().unwrap(), x, declrs, &mut ct, &mut code)?;
+        } else {
+            let mut code = vec![];
+            let mut ct = Compiletime::default();
+    
+            //at the beginning there are all parameters on the stack
+            ct.stacksize = declrs[x].args.as_ref().unwrap_or(&vec![]).len();
+    
+            compile_expr(func.expr.as_ref().unwrap(), x, declrs, &mut ct, &mut code)?;
+    
+            prog.procs
+                .insert(declrs[x].uuid(), create_proc(&declrs[x], code));
+        }
 
-        prog.procs
-            .insert(declrs[x].uuid(), create_proc(&declrs[x], code));
     }
 
     if settings.gen_vsasm() {
@@ -452,6 +538,10 @@ pub fn compile<'a>(funcs: &Vec<Func<'a>>, declrs: &Vec<Declr<'a>>, settings: &cr
     } 
 
     Ok(prog)
+}
+
+fn create_builtin_proc(func: &BuiltinFun) -> Proc {
+    Proc { code: Vec::new(), args: func.declr().args.unwrap_or(vec![]).len(), addr: 0, builtin: Some(func) }
 }
 
 struct Runtimestack {
@@ -472,7 +562,7 @@ impl Runtimestack {
     }
 
     pub fn peek(&mut self, index: usize) -> Data {
-        self.stack[index]
+        self.stack[index].clone()
     }
 
     pub fn top(&self) -> &Data {
@@ -484,12 +574,16 @@ impl Runtimestack {
     }
 }
 
-fn call_fn(prog: &Program, proc: &Proc, superstack: &[Data]) -> Result<Option<Data>, ()> {
+fn call_fn(prog: &Program, proc: &Proc, superstack: &mut Vec<Data>) -> Result<Option<Data>, ()> {
     let mut stack = Runtimestack::new();
 
     // build local procedure stack
-    for i in 0..proc.args {
-        stack.push(superstack[superstack.len() - i - 1].clone());
+    for _ in 0..proc.args {
+        stack.push(superstack.pop().unwrap());
+    }
+
+    if let Some(builtin) = proc.builtin {
+        return builtin.get_function()(&stack.stack[..]);
     }
     
     let mut x = 0;
@@ -501,7 +595,9 @@ fn call_fn(prog: &Program, proc: &Proc, superstack: &[Data]) -> Result<Option<Da
             Instr::Return => {
                 return Ok(stack.pop());
             }
-            Instr::Push(data) => stack.push(*data),
+            Instr::Push(data) => {
+                stack.push(data.clone());
+            },
             Instr::Load(offset) => {
                 let v = stack.peek(*offset);
                 stack.push(v);
@@ -511,16 +607,26 @@ fn call_fn(prog: &Program, proc: &Proc, superstack: &[Data]) -> Result<Option<Da
                 stack.put(*offset, data);
             },
             Instr::Call(addr) => {
-                if let Some(value) = call_fn(prog, prog.procs.get(addr).unwrap(), &stack.stack)? {
+                if let Some(value) = call_fn(prog, prog.procs.get(addr).unwrap(), &mut stack.stack)? {
                     stack.push(value);
                 }
             },
             Instr::Jump(addr) => {
-                x = *addr - 1;
+                x = *addr;
+                continue;
+            },
+            Instr::JumpRandom(addr) => {
+                if rand::random() {
+                    x = *addr;
+                    continue;
+                }
             },
             Instr::JumpUnless(addr) => {
                 match stack.pop() {
-                    Some(Data::Bool(true)) => x = *addr - 1,
+                    Some(Data::Bool(true)) => {
+                        x = *addr;
+                        continue;
+                    },
                     Some(Data::Bool(false)) => (),
                     _ => {
                         crate::message(crate::token::MessageType::Critical, "no condition for unless on stack");
@@ -541,6 +647,9 @@ fn call_fn(prog: &Program, proc: &Proc, superstack: &[Data]) -> Result<Option<Da
                 };
 
                 match op {
+                    Operation::Cat => {
+                        stack.push(Data::Str(format!("{}{}", op1.as_str(), op0.as_str())));
+                    },
                     Operation::Int(op) => match op {
                         IntOp::Add => stack.push(Data::Int(op1.to_int()? + op0.to_int()?)),
                         IntOp::Sub => stack.push(Data::Int(op1.to_int()? - op0.to_int()?)),
@@ -628,7 +737,7 @@ pub fn execute(prog: &Program) -> Result<i64, ()> {
 
     if let Some(main_fn) = prog.procs.get(&main_fn_declr.uuid()) {
 
-        if let Some(exit_code) = call_fn(prog, main_fn, &[])? {
+        if let Some(exit_code) = call_fn(prog, main_fn, &mut Vec::new())? {
             return Ok(exit_code.to_int()?);
         }
 

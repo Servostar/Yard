@@ -1,16 +1,57 @@
+section[text]
 
 0xc8c7a99bb88e156b:
 	push int 0x0
 	store 0x0
 	load 0x0
-	push int 0x4
+	push int 0x9
+	cmp gt int
+	jump-unless 0x19
+	load 0x0
+	push int 0x5
+	cmp not-eq int
+	jump-unless 0xf
+	load 0x0
+	push int 0x1
 	add int
 	store 0x0
-	load 0x0
-	push int 0x10
-	cmp lt eq int
-	jump-unless 0xb
-	jump 0xc
 	jump 0x2
+	push string ""
 	load 0x0
+	cat
+	call 0xa451e518c3d4dbea
+	call 0x396ceaf58c7ab783
+	load 0x0
+	push int 0x1
+	add int
+	store 0x0
+	jump 0x2
+	jump 0x1b
+	jump 0x2
+	push int 0x0
 	ret
+
+extern builtin 0x396ceaf58c7ab783
+
+extern builtin 0x608aa48c89877fc5
+
+0x967b65e0e8f1394:
+	load 0x0
+	push int 0x1
+	cmp not-eq int
+	jump-unless 0x6
+	push int 0x1
+	ret
+	load 0x0
+	push int 0x1
+	sub int
+	call 0x967b65e0e8f1394
+	load 0x0
+	mul int
+	ret
+
+extern builtin 0xdcd0c37eed9c3ddf
+
+extern builtin 0x6d3c1164316ec324
+
+extern builtin 0xa451e518c3d4dbea

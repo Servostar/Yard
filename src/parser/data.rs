@@ -1,3 +1,6 @@
+use rand::RngCore;
+
+use crate::conf::Settings;
 use crate::token::{DebugInfo, DebugNotice, Token, MessageType};
 use crate::Prim;
 use core::panic;
@@ -15,6 +18,12 @@ pub enum LogLvl {
     Err,
 }
 
+impl Default for LogLvl {
+    fn default() -> Self {
+        Self::Info
+    }
+}
+
 pub struct Diagnostics<'a> {
     /// terminating factor on error
     err: Option<DebugNotice<'a>>,
@@ -28,17 +37,13 @@ pub struct Diagnostics<'a> {
 }
 
 impl<'a> Diagnostics<'a> {
-    pub fn new(source: &'a str) -> Self {
+    pub fn new(settings: &Settings, source: &'a str) -> Diagnostics<'a> {
         Self {
             err: None,
             hints: vec![],
             source,
-            loglvl: LogLvl::Info
+            loglvl: settings.loglvl()
         }
-    }
-
-    pub fn set_loglvl(&mut self, lvl: LogLvl) {
-        self.loglvl = lvl;
     }
 
     pub fn set_err<T, S>(&mut self, source: &S, message: &'static crate::token::DebugMsg, ext: T)
@@ -47,7 +52,8 @@ impl<'a> Diagnostics<'a> {
         S: Into<DebugInfo> + Clone,
     {
         if self.err.is_some() {
-            panic!("Error already set");
+            crate::message(MessageType::Warning, "Multiple Errors occured during compilation");
+            return;
         }
 
         let info: DebugInfo = source.clone().into();
@@ -100,12 +106,14 @@ impl<'a> std::fmt::Display for Diagnostics<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Func<'a> {
     /// raw tokens
     pub raw: Option<VecDeque<Token<'a>>>,
     /// parsed content
     pub expr: Option<Expr<'a>>,
+    
+    pub is_builtin:bool,
 }
 
 impl<'a> Func<'a> {
@@ -113,6 +121,7 @@ impl<'a> Func<'a> {
         Self {
             raw: None,
             expr: None,
+            is_builtin: false
         }
     }
 }
@@ -131,10 +140,29 @@ pub struct Declr<'a> {
     /// debug info
     pub info: Option<DebugInfo>,
 
+    pub is_builtin: bool,
+
     uuid: u64
 }
 
 impl<'a> Declr<'a> {
+
+    pub fn generate_builtin(name: &'static str, args: Vec<(&'static str, Prim)>, ret: Option<Prim>) -> Declr {
+        Declr {
+            name: Some(name),
+            args: if args.is_empty() {
+                None
+            } else {
+                Some(args)
+            }, 
+            results: ret.is_some(), 
+            result_typ: ret, 
+            info: None, 
+            is_builtin: true,
+            uuid: rand::thread_rng().next_u64()
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             name: None,
@@ -142,6 +170,7 @@ impl<'a> Declr<'a> {
             results: false,
             result_typ: None,
             info: None,
+            is_builtin: false,
             uuid: 0,
         }
     }
@@ -153,6 +182,7 @@ impl<'a> Declr<'a> {
             results: true,
             result_typ: Some(Prim::Int),
             info: None,
+            is_builtin: false,
             uuid: 0
         };
 
@@ -233,11 +263,10 @@ pub enum Expr<'a> {
     Term(VecDeque<Token<'a>>),
 }
 
-pub struct Scope<'a> {
-    pub args: Option<&'a Vec<(&'a str, Prim)>>,
+pub struct Scope {
+    pub declr: usize,
     /// stack of scoped block variables
     pub vars: Vec<Vec<(String, Option<Prim>)>>,
-    pub func_return_typ: Option<Prim>,
     /// if we safely yielded sth
     pub yields: bool,
     /// if the last expr yielded a result
@@ -245,7 +274,7 @@ pub struct Scope<'a> {
     pub cond_count: usize,
 }
 
-impl<'a> Scope<'a> {
+impl Scope {
     pub fn alloc_scope(&mut self) {
         self.vars.push(Vec::new())
     }
@@ -258,8 +287,8 @@ impl<'a> Scope<'a> {
         self.vars.last_mut().unwrap().push((name, typ))
     }
 
-    pub fn is_arg(&self, name: &'a str) -> bool {
-        if let Some(args) = self.args {
+    pub fn is_arg(&self, name: &str, declrs: &Vec<Declr>) -> bool {
+        if let Some(args) = &declrs[self.declr].args {
             for arg in args.iter() {
                 if arg.0 == name {
                     return true;
@@ -269,8 +298,8 @@ impl<'a> Scope<'a> {
         false
     }
 
-    pub fn get_arg_type(&self, name: &'a str) -> Prim {
-        if let Some(args) = self.args {
+    pub fn get_arg_type(&self, name: &str, declrs: &Vec<Declr>) -> Prim {
+        if let Some(args) = &declrs[self.declr].args {
             for arg in args.iter() {
                 if arg.0 == name {
                     return arg.1;
@@ -280,7 +309,7 @@ impl<'a> Scope<'a> {
         panic!("No argument of name: {name}");
     }
 
-    pub fn get_var_type(&self, name: &'a str) -> Prim {
+    pub fn get_var_type(&self, name: &str) -> Prim {
         // create an owned version of the string
         let owned = &name.to_owned();
 
@@ -294,7 +323,7 @@ impl<'a> Scope<'a> {
         panic!("No variable of name: {name}");
     }
 
-    pub fn is_var(&self, name: &'a str) -> Option<Prim> {
+    pub fn is_var(&self, name: &str) -> Option<Prim> {
         // create an owned version of the string
         let owned = &name.to_owned();
 
@@ -309,11 +338,10 @@ impl<'a> Scope<'a> {
         None
     }
 
-    pub fn new<'b>() -> Scope<'b> {
+    pub fn new() -> Scope {
         Scope {
-            args: None,
+            declr: 0,
             vars: vec![],
-            func_return_typ: None,
             expr_yield: false,
             yields: false,
             cond_count: 0,

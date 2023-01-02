@@ -7,9 +7,14 @@ mod parser;
 mod inter;
 mod conf;
 mod vmrt;
+mod srcio;
+mod builtin;
+mod direct;
 
+use builtin::BuiltinFun;
 use colored::Colorize;
-use parser::*;
+use conf::Settings;
+use parser::{*, data::{Declr, Func}};
 use token::*;
 
 use crate::parser::data::Diagnostics;
@@ -21,39 +26,37 @@ where
     println!("{}: {}\n", typ.to_colored(), msg.into().bold().bright_white());
 }
 
-fn main() {
-    let source = r"
--- structs are tables
+fn compile(settings: &Settings) -> Option<(Vec<Func>, Vec<Declr>, Vec<BuiltinFun>)> {
 
-main() = int {
-    
-    x:rat = 0.0;
+    for src in settings.get_source().iter() {
+        let code = src.code();
 
-    loop {
-        x = x + 4
+        let mut diagnostics = Diagnostics::new(&settings, code);
+        
+        if let Ok(mut tokens) = tokenize(code, &mut diagnostics) {
+            let specs = crate::direct::resolve_directives(&mut tokens);
 
-        unless x < 16 {
-            break
-        }
-    }
-    
-    yield x;
-}
-";
+            let mut parser = Parser::new(&specs);
 
-    let mut diagnostics = Diagnostics::new(source);
-
-    let settings = conf::parse_args(&mut diagnostics);
-
-    if let Ok(mut tokens) = tokenize(source, &mut diagnostics) {
-        if let Ok((fs, ds)) = parse(&mut tokens, &mut diagnostics, &settings) {
-            if let Ok(prog) = vmrt::compile(&fs, &ds, &settings) {
-                if let Ok(exit_code) = vmrt::execute(&prog) {
-                    crate::message(MessageType::Info, format!("Program exited with {}", exit_code));
+            if let Ok((funcs, declrs, builtin)) = parser.parse(&mut tokens, &mut diagnostics, &settings) {
+                if let Ok(prog) = vmrt::compile(&funcs, &declrs, builtin, &settings) {
+                    if let Ok(exit_code) = vmrt::execute(&prog) {
+                        crate::message(MessageType::Info, format!("Program exited with {}", exit_code));
+                    }
                 }
             }
         }
+
+        println!("{}", diagnostics);
+        continue;
     }
 
-    println!("{}", diagnostics);
+    None
+}
+
+fn main() {
+
+    if let Ok(settings) = conf::parse_args() {
+        compile(&settings);
+    }
 }

@@ -1,7 +1,6 @@
 use crate::token::DebugMsg;
 use crate::token::MessageType::Error;
 use crate::token::MessageType::Info;
-//use crate::token::MessageType::Warning;
 
 pub const ERR10: &DebugMsg = &DebugMsg {
     typ: Error,

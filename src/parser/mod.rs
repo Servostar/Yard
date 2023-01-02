@@ -1,4 +1,4 @@
-use crate::{token::{Assoc, DebugInfo, Keyword, Operator, Prim, Token}, conf::Settings};
+use crate::{token::{Assoc, DebugInfo, Keyword, Operator, Prim, Token}, conf::Settings, builtin::{BuiltinFun, get_builtin_funs}, direct::LangSpecs};
 use core::panic;
 use std::{collections::VecDeque, vec};
 
@@ -7,15 +7,34 @@ pub mod msg;
 
 use data::*;
 
+pub struct Parser<'a> {
+    pub declrs: Vec<Declr<'a>>,
+    pub funcs: Vec<Func<'a>>,
+    pub scope: Scope,
+
+    pub builtin: Vec<BuiltinFun>,
+}
+
+impl<'a> Parser<'a> {
+
+    pub fn new(specs: &LangSpecs) -> Parser<'a> {
+        let builtin = get_builtin_funs(specs.features());
+
+        Self { 
+            declrs: builtin.iter().map(|bf| bf.declr()).collect(),
+            funcs: builtin.iter().map(|bf| bf.func()).collect(),
+            scope: Scope::new(),
+            builtin
+        }
+    }
+
+
 /// simple brace-counting parser to detect functions
-fn discover_functions<'a>(
+fn discover_functions(
+    &mut self,
     tokens: &mut VecDeque<crate::Token<'a>>,
     diagnostics: &mut data::Diagnostics,
-) -> Result<(Vec<Func<'a>>, Vec<Declr<'a>>), ()> {
-
-    let mut funcs = Vec::new();
-    let mut declrs = Vec::new();
-
+) -> Result<(), ()> {
     // function to currently identifiy
     let mut func = Func::new();
     let mut declr = Declr::new();
@@ -29,17 +48,17 @@ fn discover_functions<'a>(
     macro_rules! finish_func {
         ($token:expr) => {
             // check if the function is already declared
-            if declrs.contains(&declr) {
+            if self.declrs.contains(&declr) {
                 diagnostics.set_err(
                     $token,
                     crate::msg::ERR10,
                     format!("Multiple definitions: {declr}"),
                 );
                 return Err(());
-            }
+            } 
 
             // check if the function returns sth but no return value is given
-            if declr.results && declr.result_typ.is_none() {
+            if declr.results &&declr.result_typ.is_none() {
                 diagnostics.set_err($token, crate::msg::ERR11, format!("for function {declr}"));
                 return Err(());
             }
@@ -47,8 +66,8 @@ fn discover_functions<'a>(
             declr.gen_uuid();
 
             // store new function and its declaration
-            funcs.push(func);
-            declrs.push(declr);
+            self.funcs.push(func);
+            self.declrs.push(declr);
 
             // create new empty function
             declr = Declr::new();
@@ -106,7 +125,7 @@ fn discover_functions<'a>(
             Token::Type(typ, _) => {
                 // check if we already have a result type
                 if declr.result_typ.is_none() {
-                    // then check if we even need to return sth.
+                    // then check if we even need to return Err(()) sth.
                     if declr.results {
                         declr.result_typ = Some(*typ);
                         continue;
@@ -181,7 +200,7 @@ fn discover_functions<'a>(
                 }
 
                 Token::Assign(name, _, info) => {
-                    // check if we already marked a return type
+                    // check if we already marked a return Err(()) type
                     // we dont want a double assignment
                     if declr.results {
                         diagnostics.set_err(&top, crate::msg::ERR17, "");
@@ -258,7 +277,7 @@ fn discover_functions<'a>(
                 }
                 _ => {
                     diagnostics.set_err(&top, crate::msg::ERR23, "");
-                    return Err(());
+                    return Err(()) ;
                 }
             }
             continue;
@@ -269,7 +288,7 @@ fn discover_functions<'a>(
             Token::LineBreak(_) | Token::Terminator(_) => (), // valid whitespace
             _ => {
                 diagnostics.set_err(&top, crate::msg::ERR22, "");
-                return Err(());
+                return Err(()) ;
             }
         }
     }
@@ -282,19 +301,22 @@ fn discover_functions<'a>(
         }
     }
 
-    Ok((funcs, declrs))
+    Ok(())
 }
 
 /// parse the functions raw content to expr for easy compilation using a brace-counter.
 /// - ```{...}``` surround a block
 /// - line breaks seperate expressions
-fn discover_exprs<'a>(
-    functions: &mut Vec<Func<'a>>,
-    _: &Vec<Declr<'a>>,
+fn discover_exprs(
+    &mut self,
     diagnostics: &mut data::Diagnostics,
-) -> Result<(),()> {
+ ) -> Result<(), ()> {
 
-    for func in functions.iter_mut() {
+    for func in self.funcs.iter_mut() {
+        if func.is_builtin {
+            continue;
+        }
+
         let mut blocks = vec![Block::new()];
 
         let mut expr = VecDeque::new();
@@ -320,7 +342,7 @@ fn discover_exprs<'a>(
                             block.push_back(Expr::Term(expr));
                         } else {
                             diagnostics.set_err(&top, crate::msg::ERR41, "");
-                            return Err(());
+                            return Err(()) ;
                         }
                         expr = VecDeque::new();
                         blocks.push(Block::new());
@@ -334,16 +356,16 @@ fn discover_exprs<'a>(
                                 dst.push_back(Expr::Block(block)); 
                             } else {
                                 diagnostics.set_err(&top, crate::msg::ERR41, "");
-                                return Err(());
+                                return Err(()) ;
                             }
                         } else {
                             diagnostics.set_err(&top, crate::msg::ERR40, "");
-                            return Err(());
+                            return Err(()) ;
                         }
     
                         if blocks.is_empty() {
                             diagnostics.set_err(&top, crate::msg::ERR41, "");
-                            return Err(());
+                            return Err(()) ;
                         }
 
                         continue;
@@ -361,7 +383,7 @@ fn discover_exprs<'a>(
                 block.push_back(Expr::Term(expr));
             } else {
                 diagnostics.set_err(expr.back().unwrap(), crate::msg::ERR40, "");
-                return Err(());
+                return Err(()) ;
             }
         }
 
@@ -369,7 +391,8 @@ fn discover_exprs<'a>(
             func.expr = Some(Expr::Block(block));
         }
     }
-    Ok(())
+
+    return Ok(())
 }
 
 fn check_var_typ(
@@ -410,15 +433,16 @@ fn check_var_typ(
         }
     } else {
         diagnostics.set_err(info, crate::msg::ERR52, "");
-        return Err(());
+        return Err(()) ;
     }
+
     Ok(())
 }
 
 fn process_keyword(
+    &mut self,
     info: &DebugInfo,
     keyword: Keyword,
-    scope: &mut Scope,
     operands: &mut Vec<Prim>,
     diagnostics: &mut data::Diagnostics,
 ) -> Result<(), ()> {
@@ -430,7 +454,7 @@ fn process_keyword(
                     crate::msg::ERR53,
                     format!("got {:?} values", operands.len()),
                 );
-                return Err(());
+                return Err(()) ;
             }
 
             if let Some(operand) = operands.pop() {
@@ -438,13 +462,13 @@ fn process_keyword(
                     Prim::Bool => (),
                     _ => {
                         diagnostics.set_err(info, crate::msg::ERR53, format!("got {:?}", operand));
-                        return Err(());
+                        return Err(()) ;
                     }
                 }
             }
         }
         Keyword::Return => {
-            if scope.func_return_typ.is_some() {
+            if self.declrs[self.scope.declr].result_typ.is_some() {
                 diagnostics.set_err(info, crate::msg::ERR54, "perhaps use `yield`");
                 return Err(());
             }
@@ -460,7 +484,7 @@ fn process_keyword(
             }
 
             if let Some(operand) = operands.pop() {
-                if let Some(typ) = scope.func_return_typ {
+                if let Some(typ) = self.declrs[self.scope.declr].result_typ {
                     if !typ.is_equal(operand) {
                         diagnostics.set_err(
                             info,
@@ -469,7 +493,7 @@ fn process_keyword(
                         );
                         return Err(());
                     }
-                    scope.yields = scope.cond_count == 1;
+                    self.scope.yields = self.scope.cond_count == 1;
                 } else {
                     diagnostics.set_err(info, crate::msg::ERR57, "");
                     return Err(());
@@ -486,9 +510,8 @@ fn process_keyword(
 }
 
 fn collapse_operation(
+    &mut self,
     operation: &mut Token,
-    declrs: &Vec<Declr>,
-    scope: &mut Scope,
     operands: &mut Vec<Prim>,
     diagnostics: &mut data::Diagnostics,
 ) -> Result<(), ()> {
@@ -496,14 +519,14 @@ fn collapse_operation(
     match operation {
         Token::Operator(op, ref mut typehint, dbginf) => *typehint = Some(op.operate(operands, &dbginf, diagnostics)?),
         Token::Assign(name, ref mut typ, dbginf) => {
-            check_var_typ(typ, operands, &dbginf, diagnostics)?;
-            scope.decl_var((*name).to_owned(), typ.clone());
+            Self::check_var_typ(typ, operands, &dbginf, diagnostics)?;
+            self.scope.decl_var((*name).to_owned(), typ.clone());
         }
         Token::Func(name, dbginf) => {
-            call_func(name, declrs, operands, &dbginf, diagnostics)?;
+            self.call_func(name, operands, &dbginf, diagnostics)?;
         },
         Token::Keyword(keyword, dbginf) => {
-            process_keyword(dbginf, *keyword, scope, operands, diagnostics)?;
+            self.process_keyword(dbginf, *keyword, operands, diagnostics)?;
         }
         _ => (),
     }
@@ -512,15 +535,15 @@ fn collapse_operation(
 }
 
 fn call_func(
+    &mut self,
     name: &str,
-    declrs: &Vec<Declr>,
     operands: &mut Vec<Prim>,
     info: &DebugInfo,
     diagnostics: &mut data::Diagnostics,
 ) -> Result<(), ()> {
     
     // find the function in our function declarations by its name
-    for declr in declrs {
+    for declr in self.declrs.iter() {
         // check if declaration name matches the function name
         if let Some(declr_name) = declr.name {
             if declr_name != name {
@@ -543,9 +566,8 @@ fn call_func(
                 
             // check parameter types
             for (x, arg) in args.iter().enumerate() {
-                // parameter are in reverse order on the stack
-                // so they are placed at the bottom
-                let operand = operands.first().unwrap();
+                // fetch next operand which is ontop of the stack
+                let operand = operands.last().unwrap();
                 // check types
                 if !operand.is_equal(arg.1) {
                     diagnostics.set_err(info, crate::msg::ERR61, format!("expected {:?} got {:?} as {}th argument", arg, operand, x));
@@ -563,14 +585,14 @@ fn call_func(
         }
         break;
     }
+
     Ok(())
 }
 
 /// parse a single term using a modified shunting yard
-fn parse_term<'a>(
+fn parse_term(
+    &mut self,
     term: &mut VecDeque<Token<'a>>,
-    declrs: &Vec<Declr<'a>>,
-    scope: &mut Scope,
     diagnostics: &mut data::Diagnostics,
 ) -> Result<(),()> {
 
@@ -583,25 +605,25 @@ fn parse_term<'a>(
             // resolve word to either a function, parameter or variable
             Token::Word(text, dbginf) => {
                 // test for function
-                if is_func(declrs, text) {
+                if self.is_func(&self.declrs, text) || self.is_func(&self.declrs, text){
                     op_stack.push(Token::Func(text, *dbginf));
                     continue;
 
                 // test for function parameter
-                } else if scope.is_arg(text) {
-                    value_stack.push(scope.get_arg_type(text));
+                } else if self.scope.is_arg(text, &self.declrs) {
+                    value_stack.push(self.scope.get_arg_type(text, &self.declrs));
                     output.push_back(Token::Arg(text, *dbginf));
                     continue;
 
                 // test for variable in scope
-                } else if scope.is_var(text).is_some() {
-                    value_stack.push(scope.get_var_type(text));
+                } else if self.scope.is_var(text).is_some() {
+                    value_stack.push(self.scope.get_var_type(text));
                     output.push_back(Token::Var(text, *dbginf));
                     continue;
                 }
                 // word was not reolved to anything
                 diagnostics.set_err(&token, crate::msg::ERR62, "");
-                return Err(());
+                return Err(()); 
             }
             Token::Bool(_, _) => {
                 output.push_back(token);
@@ -610,6 +632,10 @@ fn parse_term<'a>(
             Token::Number(_, hint, _) => {
                 output.push_back(token.clone());
                 value_stack.push(Prim::Num(*hint))
+            },
+            Token::String(_, _) => {
+                output.push_back(token.clone());
+                value_stack.push(Prim::Str)
             }
             Token::Assign(_, _, _) => {
                 op_stack.push(token);
@@ -617,7 +643,7 @@ fn parse_term<'a>(
             Token::Label(_, _) => output.push_back(token),
             Token::Keyword(key, _) => {
                 match key {
-                    Keyword::Unless => (),
+                    Keyword::While => output.push_back(Token::LoopStart),
                     _ => ()
                 }
                 op_stack.push(token)
@@ -634,10 +660,8 @@ fn parse_term<'a>(
                                         match &next {
                                             Token::Func(_, _) => {
                                                 let mut token = op_stack.pop().unwrap();
-                                                collapse_operation(
+                                                self.collapse_operation(
                                                     &mut token,
-                                                    declrs,
-                                                    scope,
                                                     &mut value_stack,
                                                     diagnostics,
                                                 )?;
@@ -650,10 +674,8 @@ fn parse_term<'a>(
                                 }
                             }
                             _ => {
-                                collapse_operation(
+                                self.collapse_operation(
                                     &mut token,
-                                    declrs,
-                                    scope,
                                     &mut value_stack,
                                     diagnostics,
                                 )?;
@@ -662,11 +684,11 @@ fn parse_term<'a>(
                         }
                     }
                     diagnostics.set_err(&token, crate::msg::ERR64, "");
-                    return Err(());
+                    return  Err(());
                 }
                 _ => {
                     diagnostics.set_err(&token, crate::msg::ERR65, "");
-                    return Err(());
+                    return  Err(());
                 }
             },
 
@@ -678,10 +700,8 @@ fn parse_term<'a>(
                             let prec1 = op1.prec();
 
                             if prec1 > prec0 || prec0 == prec1 && op.assoc() == Assoc::Left {
-                                collapse_operation(
+                                self.collapse_operation(
                                     &mut top,
-                                    declrs,
-                                    scope,
                                     &mut value_stack,
                                     diagnostics,
                                 )?;
@@ -709,7 +729,7 @@ fn parse_term<'a>(
                 }
             }
             _ => {
-                collapse_operation(&mut token, declrs, scope, &mut value_stack, diagnostics)?;
+                self.collapse_operation(&mut token, &mut value_stack, diagnostics)?;
                 output.push_back(token)
             }
         }
@@ -720,18 +740,18 @@ fn parse_term<'a>(
         return Err(());
     }
 
-    scope.expr_yield = value_stack.len() == 1;
-    if scope.expr_yield {
+    self.scope.expr_yield = value_stack.len() == 1;
+    if self.scope.expr_yield {
         let yielded = value_stack.pop().unwrap(); 
 
-        if !yielded.is_equal(scope.func_return_typ.unwrap()) { 
+        if !yielded.is_equal(self.declrs[self.scope.declr].result_typ.unwrap()) { 
 
             diagnostics.set_err(
                 &output[0],
                 crate::msg::ERR59,
                 format!(
                     "expected {:?} got {:?}",
-                    scope.func_return_typ.unwrap(),
+                    self.declrs[self.scope.declr].result_typ.unwrap(),
                     yielded
                 ),
             );
@@ -744,7 +764,7 @@ fn parse_term<'a>(
     Ok(())
 }
 
-fn is_func(declrs: &[Declr], text: &str) -> bool {
+fn is_func(&self, declrs: &[Declr], text: &str) -> bool {
     for declr in declrs {
         if declr.name.is_some() && declr.name.unwrap() == text {
             return true;
@@ -753,51 +773,55 @@ fn is_func(declrs: &[Declr], text: &str) -> bool {
     return false;
 }
 
-fn parse_block<'a>(
+fn parse_block(
+    &mut self,
     block: &mut Block<'a>,
-    declrs: &Vec<Declr<'a>>,
-    scope: &mut Scope,
     diagnostics: &mut data::Diagnostics,
 ) -> Result<(), ()> {
-    scope.cond_count += 1;
-    scope.alloc_scope();
+    self.scope.cond_count += 1;
+    self.scope.alloc_scope();
     for expr in block.iter_mut() {
         match expr {
-            Expr::Block(block) => parse_block(block, declrs, scope, diagnostics)?,
-            Expr::Term(term) => parse_term(term, declrs, scope, diagnostics)?,
+            Expr::Block(block) => self.parse_block(block,  diagnostics)?,
+            Expr::Term(term) => self.parse_term(term,  diagnostics)?,
         }
     }
-    scope.pop_scope();
-    scope.cond_count -= 1;
+    self.scope.pop_scope();
+    self.scope.cond_count -= 1;
     Ok(())
 }
 
-fn parse_exprs<'a>(
-    funcs: &mut Vec<Func<'a>>,
-    declrs: &Vec<Declr<'a>>,
+fn parse_exprs(
+    &mut self,
     diagnostics: &mut data::Diagnostics,
 ) -> Result<(),()> {
-    let mut scope = Scope::new();
 
-    for (x, func) in funcs.iter_mut().enumerate() {
-        match func.expr.as_mut().expect("Function has no body") {
+    for x in 0..self.funcs.len() {
+        if self.declrs[x].is_builtin {
+            continue;
+        }
+
+        let mut block = match self.funcs[x].expr.as_mut().expect("Function has no body") {
             Expr::Block(block) => {
-                scope.args = declrs[x].args.as_ref();
-                scope.func_return_typ = declrs[x].result_typ;
-                scope.yields = false;
-                scope.cond_count = 0;
-
-                parse_block(block, declrs, &mut scope, diagnostics)?;
-
-                if scope.func_return_typ.is_some() && !scope.yields && !scope.expr_yield {
-                    diagnostics.set_err(declrs[x].info.as_ref().unwrap(), crate::msg::ERR56, format!("for function: {}", declrs[x]));
-                    return Err(());
-                }
+                block.clone()
             }
             _ => {
-                crate::message(crate::token::MessageType::Critical, "Fatal-Compilier-Error: function must have a block");
+                crate::message(crate::token::MessageType::Critical, "Fatal-Compiler-Error: function must have a block");
                 panic!();
             },
+        };
+
+        self.scope.declr = x;
+        self.scope.yields = false;
+        self.scope.cond_count = 0;
+
+        self.parse_block(&mut block, diagnostics)?;
+
+        self.funcs[x].expr = Some(Expr::Block(block));
+
+        if self.declrs[self.scope.declr].result_typ.is_some() && !self.scope.yields && !self.scope.expr_yield {
+            diagnostics.set_err(self.declrs[x].info.as_ref().unwrap(), crate::msg::ERR56, format!("for function: {}", self.declrs[x]));
+            return Err(());
         }
     }
     Ok(())
@@ -806,16 +830,17 @@ fn parse_exprs<'a>(
 /// reorder and organize a listing of instructions to a RPN based format:
 /// any program is made out of functions.
 /// A function has a name followed by an optional parameter list, followed by an optional equal sign and block.
-pub fn parse<'a>(tokens: &mut VecDeque<crate::Token<'a>>, diagnostics: &mut data::Diagnostics, settings: &Settings) -> Result<(Vec<Func<'a>>, Vec<Declr<'a>>), ()> {
+pub fn parse(&'a mut self, tokens: &mut VecDeque<crate::Token<'a>>, diagnostics: &mut data::Diagnostics, settings:  &Settings) -> Result<(&mut Vec<Func>, &mut Vec<Declr>, &mut Vec<BuiltinFun>), ()> {
 
-    let (mut funcs, declrs) = discover_functions(tokens, diagnostics)?;
+    self.discover_functions(tokens, diagnostics)?;
 
-    discover_exprs(&mut funcs, &declrs, diagnostics)?;
-    parse_exprs(&mut funcs, &declrs, diagnostics)?;
+    self.discover_exprs(diagnostics)?;
+    self.parse_exprs(diagnostics)?;
 
     if settings.gen_erpn() {
-        crate::inter::convert_to_erpn(&mut funcs, &declrs);
+        crate::inter::convert_to_erpn(self);
     }
 
-    return Ok((funcs, declrs));   
+    return Ok((&mut self.funcs, &mut self.declrs, &mut self.builtin));
+}
 }

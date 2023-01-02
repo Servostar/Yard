@@ -1,16 +1,55 @@
+extern function say_hello
+
+extern function print
+
+extern function println
+
+extern function print
+
+extern function println
+
+fac:
+	Load Arg x
+	Load Int 1
+	NotEq Int
+	Unless
+		Load Int 1
+		Yield
+	Load Arg x
+	Load Int 1
+	Sub Int
+	Call fac
+	Load Arg x
+	Mul Int
+	Yield
+
 main:
 	Load Int 0
 	Store Int x
 	Loop
+		Loopstart
 		Load Var x
-		Load Int 4
-		Add Int
-		Store Int x
-		Load Var x
-		Load Int 16
-		Lt Int
-		Unless
-			Break
-	Load Var x
+		Load Int 9
+		Gt Int
+		While
+			Load Var x
+			Load Int 5
+			NotEq Int
+			Unless
+				Load Var x
+				Load Int 1
+				Add Int
+				Store Int x
+				Continue
+			Load String ""
+			Load Var x
+			Cat Str
+			Call println
+			Load Var x
+			Load Int 1
+			Add Int
+			Store Int x
+		Break
+	Load Int 0
 	Yield
 

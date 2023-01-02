@@ -1,9 +1,12 @@
-use crate::parser::data::Diagnostics;
+use crate::{parser::data::LogLvl, srcio::CodeSrc};
 
 #[derive(Default)]
 pub struct Settings {
     gen_erpn: bool,
     gen_vsasm: bool,
+    loglvl: LogLvl,
+
+    srcs: Vec<CodeSrc>
 }
 
 impl Settings {
@@ -14,17 +17,25 @@ impl Settings {
     pub fn gen_vsasm(&self) -> bool {
         self.gen_vsasm
     }
+
+    pub fn get_source(&self) -> &Vec<CodeSrc> {
+        &self.srcs
+    }
+
+    pub fn loglvl(&self) -> LogLvl {
+        self.loglvl
+    }
 }
 
-pub fn parse_args(diagnostics: &mut Diagnostics) -> Settings {
+pub fn parse_args() -> Result<Settings, String> {
     let args = std::env::args().collect::<Vec<String>>();
 
     let mut settings = Settings::default();
 
-    for arg in args.iter() {
+    for arg in args.iter().skip(1) {
         match arg.as_str() {
-            "--no-info" => diagnostics.set_loglvl(crate::parser::data::LogLvl::Warn),
-            "--no-warn" => diagnostics.set_loglvl(crate::parser::data::LogLvl::Err),
+            "--no-info" => settings.loglvl = crate::parser::data::LogLvl::Warn,
+            "--no-warn" => settings.loglvl = crate::parser::data::LogLvl::Err,
             "--erpn" => settings.gen_erpn = true,
             "--vsasm" => settings.gen_vsasm = true,
             "-h" => println!(concat!(
@@ -35,9 +46,9 @@ pub fn parse_args(diagnostics: &mut Diagnostics) -> Settings {
                 "--vsasm: write a .vsasm (virtual simplified assembly language) summary to disk\n",
                 "-h: print this dialog"
             )),
-            _ => ()
+            _ => settings.srcs.push(CodeSrc::new(arg)?)
         }
     }
 
-    settings
+    Ok(settings)
 }

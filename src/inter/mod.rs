@@ -23,18 +23,26 @@ fn write_block(file: &mut std::fs::File, indent: &mut String, block: &std::colle
     indent.pop();
 }
 
-pub fn convert_to_erpn<'a>(funcs: &mut Vec<Func<'a>>, declrs: &Vec<Declr<'a>>) {
+pub fn convert_to_erpn<'a>(parser: &crate::Parser) {
 
     let mut file = std::fs::OpenOptions::new().write(true).create(true).truncate(true).open("test.erpn").unwrap();
 
     let mut indent = String::new();
 
-    for (x, func) in funcs.iter().enumerate() {
-        // write function name
-        write!(&mut file, "{}:\n", declrs[x].name.unwrap()).unwrap();
+    for (x, func) in parser.funcs.iter().enumerate() {
+        if func.is_builtin {
+            write!(&mut file, "extern function {}\n\n", parser.declrs[x].name.unwrap()).unwrap();
+            continue;
+        }
 
-        // write down function body
-        write_expr(&mut file, &mut indent, func.expr.as_ref().unwrap());
+        // write function name
+        write!(&mut file, "{}:\n", parser.declrs[x].name.unwrap()).unwrap();
+
+        if !func.is_builtin {
+            // write down function body
+            write_expr(&mut file, &mut indent, func.expr.as_ref().unwrap());
+        }
+        
         writeln!(&mut file).unwrap();
     }
 }
