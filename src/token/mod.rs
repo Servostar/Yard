@@ -596,7 +596,7 @@ const TOKEN_REGEX_SRC: &'static str = concat!(
     r"|'([a-zA-Z0-9_]+)",    // labels: 'example
     r"|(goto\s+[a-zA-Z0-9_]+",   // goto example
     r"|despite|until|loop|break|cont|ret|yield|please)", // keywords
-    r"|\W(int|rat|bool|str)\W", // raw data types
+    r"|[\W\s]{0,1}(int|rat|bool|str)[\W\s]{0,1}", // raw data types
     r"|(true|false|ye|no|maybe)",   // boolean values
     r"|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9_]+))?\s*=[^=]", // assignment var:int=
     r"|([A-Za-z_]+)\s*(?::\s*([a-zA-Z0-9_]+))",  // declaration  var:int

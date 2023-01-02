@@ -1,8 +1,9 @@
-@feature(io)
+@feature(io, conv)
 @version(100)
 @author(Sven Vogel)
 
-// recursion!
+-- compute the factorial
+-- in a recursive and functional way
 fac(x:int) = int {
     despite x != 1 {
         yield 1;
@@ -11,25 +12,20 @@ fac(x:int) = int {
     yield fac(x - 1) * x
 }
 
-main() = int {
-    
-    x = 0
-    loop {
+number = rat 12.0	# this is a function without arguments and a braceless body
 
-        until x > 9 {
-            despite x != 5 {
-                x = x + 1
-                cont
-            }
+// main function
+main = int {
 
-            println(""..x);
-            x = x + 1
-        }
+    result = fac(to_int(number));
 
-        break
+    println("The Factorial of " .. number() .. " is: " .. result);
+
+    x:int = 0;
+    until x > 9 {
+        println("" .. x);
+        x = x + 1
     }
 
-    println(""..fract(456.3928));
-
-    yield 0
+    yield 0;
 }

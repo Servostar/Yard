@@ -368,9 +368,10 @@ fn parse_term<'a>(
                     if decl.name.as_ref().unwrap() == name {
                         code.push(Instr::Call(decl.uuid()));
 
+                        ct.stacksize -= decl.args.as_ref().unwrap_or(&Vec::new()).len();
+
                         if decl.results {
                             ct.stacksize += 1;
-                            ct.stacksize -= decl.args.as_ref().unwrap_or(&Vec::new()).len();
                         }
                     }
                 }

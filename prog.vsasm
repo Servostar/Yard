@@ -1,39 +1,46 @@
 section[text]
 
+0xa2b0391a480300b:
+	push float 12
+
+extern builtin 0x80b0eba54530cdc3
+
+extern builtin 0xcd262c6e6c32473d
+
 0xc8c7a99bb88e156b:
-	push int 0x0
+	call 0xa2b0391a480300b
+	call 0x80b0eba54530cdc3
+	call 0x967b65e0e8f1394
 	store 0x0
-	load 0x0
-	push int 0x9
-	cmp gt int
-	jump-unless 0x19
-	load 0x0
-	push int 0x5
-	cmp not-eq int
-	jump-unless 0xf
-	load 0x0
-	push int 0x1
-	add int
-	store 0x0
-	jump 0x2
-	push string ""
+	push string "The Factorial of "
+	call 0xa2b0391a480300b
+	push string " is: "
 	load 0x0
 	cat
-	call 0xa451e518c3d4dbea
-	call 0x396ceaf58c7ab783
-	load 0x0
+	cat
+	cat
+	call 0xe2e27e92bf406d33
+	push int 0x0
+	store 0x1
+	load 0x1
+	push int 0x9
+	cmp gt int
+	jump-unless 0x1b
+	push string ""
+	load 0x1
+	cat
+	call 0xe2e27e92bf406d33
+	load 0x1
 	push int 0x1
 	add int
-	store 0x0
-	jump 0x2
-	jump 0x1b
-	jump 0x2
+	store 0x1
+	jump 0xe
 	push int 0x0
 	ret
 
-extern builtin 0x396ceaf58c7ab783
+extern builtin 0xe2e27e92bf406d33
 
-extern builtin 0x608aa48c89877fc5
+extern builtin 0x8207427514e5a880
 
 0x967b65e0e8f1394:
 	load 0x0
@@ -50,8 +57,8 @@ extern builtin 0x608aa48c89877fc5
 	mul int
 	ret
 
-extern builtin 0xdcd0c37eed9c3ddf
+extern builtin 0x3e6a3810b5f0c581
 
-extern builtin 0x6d3c1164316ec324
+extern builtin 0x443bc4709cf7af32
 
-extern builtin 0xa451e518c3d4dbea
+extern builtin 0x23a9f04bf6903826

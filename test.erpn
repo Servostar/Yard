@@ -4,9 +4,13 @@ extern function print
 
 extern function println
 
-extern function print
+extern function to_rat
 
-extern function println
+extern function to_int
+
+extern function parse_int
+
+extern function parse_rat
 
 fac:
 	Load Arg x
@@ -23,33 +27,37 @@ fac:
 	Mul Int
 	Yield
 
+number:
+	Load Rat 12.0
+
 main:
+	Call number
+	Call to_int
+	Call fac
+	Store Int result
+	Load String "The Factorial of "
+	Call number
+	Load String " is: "
+	Load Var result
+	Cat Str
+	Cat Str
+	Cat Str
+	Call println
 	Load Int 0
 	Store Int x
-	Loop
-		Loopstart
+	Loopstart
+	Load Var x
+	Load Int 9
+	Gt Int
+	While
+		Load String ""
 		Load Var x
-		Load Int 9
-		Gt Int
-		While
-			Load Var x
-			Load Int 5
-			NotEq Int
-			Unless
-				Load Var x
-				Load Int 1
-				Add Int
-				Store Int x
-				Continue
-			Load String ""
-			Load Var x
-			Cat Str
-			Call println
-			Load Var x
-			Load Int 1
-			Add Int
-			Store Int x
-		Break
+		Cat Str
+		Call println
+		Load Var x
+		Load Int 1
+		Add Int
+		Store Int x
 	Load Int 0
 	Yield
 
