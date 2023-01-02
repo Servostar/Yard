@@ -1,0 +1,24 @@
+@pragma(once)
+
+@feature(conv, math)
+@author(Sven Vogel)
+
+floor(x:rat) = rat {
+    to_rat(to_int(x))
+}
+
+round(x:rat) = rat {
+    to_rat(to_int(x + 0.5))
+}
+
+ceil(x:rat) = rat {
+    to_rat(to_int(x + 1.0))
+}
+
+fract(x:rat) = rat {
+    x - floor(x)
+}
+
+log(x:rat, b:rat) = rat {
+    log(x) / log(b)
+}

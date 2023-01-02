@@ -1,0 +1,35 @@
+@feature(io)
+@version(100)
+@author(Sven Vogel)
+
+// recursion!
+fac(x:int) = int {
+    despite x != 1 {
+        yield 1;
+    }
+
+    yield fac(x - 1) * x
+}
+
+main() = int {
+    
+    x = 0
+    loop {
+
+        until x > 9 {
+            despite x != 5 {
+                x = x + 1
+                cont
+            }
+
+            println(""..x);
+            x = x + 1
+        }
+
+        break
+    }
+
+    println(""..fract(456.3928));
+
+    yield 0
+}
