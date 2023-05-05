@@ -1,5 +1,10 @@
 ## Yard
 
+
+> NOTE:
+> Repository has been moved to: https://git.teridax.de/teridax/Yard
+> Due to that, this repository is no longer maintained
+
 Yard is an funny programming language compiler and interpreter written in pure Rust.  
 Its a functional language, having no concept of classes or inheritance. Types are static and must be known at compile time.
 
